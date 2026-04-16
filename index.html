@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mirow — Essayage Maquillage AR</title>
+<!-- IMPORTANT: bloquer les popups WebGL avant tout chargement -->
+<script>
+window.alert = function() { return; };
+window.confirm = function() { return true; };
+window.prompt = function() { return ''; };
+</script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300&family=Jost:wght@300;400;500&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
@@ -139,9 +145,6 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
 <script>
-// Suppress WebGL alerts
-window.alert=(msg)=>{if(msg&&typeof msg==='string'&&(msg.toLowerCase().includes('webgl')||msg.toLowerCase().includes('canvas')))return;alert(msg);};
-
 const PALETTES={
   lips:[{c:'#D4789C',n:'Rose Poudré',p:'Rouge Velours',b:"L'Oréal",pr:'14,90 €'},{c:'#E8735A',n:'Corail Vif',p:'Corail Passion',b:'NYX',pr:'9,90 €'},{c:'#9B3D6A',n:'Framboise',p:'Matte Framboise',b:'Maybelline',pr:'11,50 €'},{c:'#7B3F6E',n:'Prune',p:'Plum Intense',b:'MAC',pr:'24,00 €'},{c:'#5C2D4E',n:'Berry',p:'Berry Midnight',b:'Urban Decay',pr:'21,00 €'},{c:'#C49A7A',n:'Nude Sable',p:'Nude Sable',b:'Charlotte Tilbury',pr:'29,00 €'},{c:'#F0A98A',n:'Pêche',p:'Peachy Keen',b:'NARS',pr:'27,00 €'},{c:'#B07070',n:'Terracotta',p:'Terracotta Matte',b:'Fenty Beauty',pr:'22,00 €'},{c:'#8B2252',n:'Cerise',p:'Cherry Bomb',b:'Bobbi Brown',pr:'31,00 €'},{c:'#D04060',n:'Rouge',p:'Russian Red',b:'MAC',pr:'24,00 €'},{c:'#602040',n:'Bordeaux',p:'Dark Side',b:'Chanel',pr:'42,00 €'},{c:'#E8C4A0',n:'Café lait',p:'Café au Lait',b:'Huda Beauty',pr:'18,00 €'}],
   eyes:[{c:'#4A2F1A',n:'Brun Profond',p:'Palette Smoky',b:'Urban Decay',pr:'39,00 €'},{c:'#1A1A2E',n:'Navy Noir',p:'Navy Night',b:'Benefit',pr:'28,00 €'},{c:'#7B5EA7',n:'Violet Fumé',p:'Violet Smoke',b:'Charlotte Tilbury',pr:'56,00 €'},{c:'#1A4A6E',n:'Bleu Marine',p:'Blue Steel',b:'Armani',pr:'48,00 €'},{c:'#6B4226',n:'Bronze',p:'Sunset Bronze',b:'Too Faced',pr:'35,00 €'},{c:'#1A1A1A',n:'Noir Intense',p:'Noir Intense',b:'Lancôme',pr:'33,00 €'},{c:'#8B6914',n:'Or Antique',p:'Gold Digger',b:'Jeffree Star',pr:'19,00 €'},{c:'#5C4033',n:'Taupe',p:'Taupe Mauve',b:'Anastasia BH',pr:'45,00 €'},{c:'#704060',n:'Prune Yeux',p:'Plum Smoky',b:'Dior',pr:'55,00 €'},{c:'#4A6741',n:'Kaki',p:'Kaki Fusion',b:'Nyx',pr:'15,00 €'}],
@@ -193,13 +196,10 @@ async function startCamera(){
     initFaceMesh();
   }catch(e){
     document.getElementById('statusText').textContent='Caméra non disponible';
-    console.error(e);
   }
 }
 
 function initFaceMesh(){
-  // Le canvas et la vidéo ont tous les deux transform:scaleX(-1) en CSS
-  // Donc on dessine sans transformation dans le ctx — le miroir est géré par CSS
   const fm=new FaceMesh({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
   fm.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
 
@@ -208,10 +208,8 @@ function initFaceMesh(){
     const H=video.videoHeight||480;
     canvas.width=W;
     canvas.height=H;
-
-    // Canvas transparent — la vidéo est visible en dessous via CSS
+    // Canvas transparent — la vidéo est visible en dessous
     ctx.clearRect(0,0,W,H);
-
     if(results.multiFaceLandmarks&&results.multiFaceLandmarks.length>0){
       applyMakeupAR(results.multiFaceLandmarks[0],W,H);
     }
@@ -224,7 +222,7 @@ function initFaceMesh(){
   cam.start();
 }
 
-// pt() — coordonnées directes, le miroir est en CSS
+// Coordonnées directes — le miroir est géré par CSS transform:scaleX(-1) sur video ET canvas
 function pt(lm,i,W,H){
   return{x:lm[i].x*W, y:lm[i].y*H};
 }
@@ -244,13 +242,11 @@ function applyLips(lm,W,H){
   const oU=[61,185,40,39,37,0,267,269,270,409,291,308,415,310,311,312,13,82,81,80,191,78,61];
   const oL=[61,146,91,181,84,17,314,405,321,375,291,308,324,318,402,317,14,87,178,88,95,78,61];
   ctx.save();
-  // Lèvre supérieure
   ctx.beginPath();
   oU.forEach((idx,i)=>{const p=pt(lm,idx,W,H);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});
   ctx.closePath();
   ctx.fillStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${op})`;
   ctx.fill();
-  // Lèvre inférieure
   ctx.beginPath();
   oL.forEach((idx,i)=>{const p=pt(lm,idx,W,H);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});
   ctx.closePath();
@@ -263,7 +259,6 @@ function applyEyes(lm,W,H){
   const m=makeup.eyes;if(!m||!m.c)return;
   const rgb=hexToRgb(m.c);
   ctx.save();
-  // Ombre à paupières gauche et droite
   [[pt(lm,468,W,H)],[pt(lm,473,W,H)]].forEach(([center])=>{
     const grad=ctx.createRadialGradient(center.x,center.y-6,0,center.x,center.y-6,30);
     grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.75})`);
