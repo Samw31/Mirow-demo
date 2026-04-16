@@ -136,7 +136,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
     </div>
   </div>
 </div>
-
+ 
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
 <script>
@@ -145,7 +145,7 @@ console.warn=(...args)=>{if(args[0]&&typeof args[0]==='string'&&args[0].toLowerC
 const _origError=console.error.bind(console);
 console.error=(...args)=>{if(args[0]&&typeof args[0]==='string'&&args[0].toLowerCase().includes('webgl'))return;_origError(...args)};
 window.alert=(msg)=>{if(msg&&typeof msg==='string'&&(msg.toLowerCase().includes('webgl')||msg.toLowerCase().includes('canvas')))return;};
-
+ 
 const PALETTES={
   lips:[{c:'#D4789C',n:'Rose Poudré',p:'Rouge Velours',b:"L'Oréal",pr:'14,90 €'},{c:'#E8735A',n:'Corail Vif',p:'Corail Passion',b:'NYX',pr:'9,90 €'},{c:'#9B3D6A',n:'Framboise',p:'Matte Framboise',b:'Maybelline',pr:'11,50 €'},{c:'#7B3F6E',n:'Prune',p:'Plum Intense',b:'MAC',pr:'24,00 €'},{c:'#5C2D4E',n:'Berry',p:'Berry Midnight',b:'Urban Decay',pr:'21,00 €'},{c:'#C49A7A',n:'Nude Sable',p:'Nude Sable',b:'Charlotte Tilbury',pr:'29,00 €'},{c:'#F0A98A',n:'Pêche',p:'Peachy Keen',b:'NARS',pr:'27,00 €'},{c:'#B07070',n:'Terracotta',p:'Terracotta Matte',b:'Fenty Beauty',pr:'22,00 €'},{c:'#8B2252',n:'Cerise',p:'Cherry Bomb',b:'Bobbi Brown',pr:'31,00 €'},{c:'#D04060',n:'Rouge',p:'Russian Red',b:'MAC',pr:'24,00 €'},{c:'#602040',n:'Bordeaux',p:'Dark Side',b:'Chanel',pr:'42,00 €'},{c:'#E8C4A0',n:'Café lait',p:'Café au Lait',b:'Huda Beauty',pr:'18,00 €'}],
   eyes:[{c:'#4A2F1A',n:'Brun Profond',p:'Palette Smoky',b:'Urban Decay',pr:'39,00 €'},{c:'#1A1A2E',n:'Navy Noir',p:'Navy Night',b:'Benefit',pr:'28,00 €'},{c:'#7B5EA7',n:'Violet Fumé',p:'Violet Smoke',b:'Charlotte Tilbury',pr:'56,00 €'},{c:'#1A4A6E',n:'Bleu Marine',p:'Blue Steel',b:'Armani Beauty',pr:'48,00 €'},{c:'#6B4226',n:'Bronze',p:'Sunset Bronze',b:'Too Faced',pr:'35,00 €'},{c:'#1A1A1A',n:'Noir Intense',p:'Noir Intense',b:'Lancôme',pr:'33,00 €'},{c:'#8B6914',n:'Or Antique',p:'Gold Digger',b:'Jeffree Star',pr:'19,00 €'},{c:'#5C4033',n:'Taupe',p:'Taupe Mauve',b:'Anastasia BH',pr:'45,00 €'},{c:'#704060',n:'Prune Yeux',p:'Plum Smoky',b:'Dior Beauty',pr:'55,00 €'},{c:'#4A6741',n:'Kaki',p:'Kaki Fusion',b:'Nyx',pr:'15,00 €'}],
@@ -153,7 +153,7 @@ const PALETTES={
   brows:[{c:'#3D2B1A',n:'Brun Foncé',p:'Brow Wiz',b:'Anastasia BH',pr:'23,00 €'},{c:'#5C3D1A',n:'Brun Moyen',p:'Boy Brow',b:'Glossier',pr:'18,00 €'},{c:'#8B6914',n:'Châtain',p:'Brow Pencil',b:'NYX',pr:'12,00 €'},{c:'#2C1810',n:'Noir',p:'Micro Brow',b:'e.l.f.',pr:'10,00 €'},{c:'#C49A7A',n:'Blond',p:'Brow Pomade',b:'MAC',pr:'22,00 €'},{c:'#6B4226',n:'Auburn',p:'Brow Definer',b:'Benefit',pr:'25,00 €'}],
   highlight:[{c:'#FFE9B0',n:'Or Champagne',p:'Sun Lit',b:'NARS',pr:'38,00 €'},{c:'#FFF0C0',n:'Doré Nacré',p:'Mary-Lou',b:'TheBalm',pr:'28,00 €'},{c:'#FFD9A0',n:'Bronze Soleil',p:'Killawatt',b:'Fenty Beauty',pr:'36,00 €'},{c:'#F5E8FF',n:'Parme Irisé',p:'Becca Pearl',b:'BECCA',pr:'42,00 €'},{c:'#E0F5FF',n:'Perle Bleue',p:'Blue Light',b:'Charlotte Tilbury',pr:'44,00 €'},{c:'#FFEEDD',n:'Ivoire Satin',p:'Soft Focus',b:'Laura Mercier',pr:'32,00 €'}]
 };
-
+ 
 const LOOKS=[
   {id:'natural',name:'Naturel',dots:['#E8A87A','#D4789C','#C49A7A'],lips:{c:'#D4789C',op:0.65},eyes:{c:'#5C4033',op:0.3},blush:{c:'#F4A0B0',op:0.25},brows:{c:'#5C3D1A',op:0.5},highlight:{c:'#FFE9B0',op:0.3}},
   {id:'glam',name:'Glam',dots:['#7B3F6E','#E8735A','#C9924A'],lips:{c:'#9B3D6A',op:0.9},eyes:{c:'#7B3F6E',op:0.7},blush:{c:'#E87A7A',op:0.45},brows:{c:'#3D2B1A',op:0.7},highlight:{c:'#FFD9A0',op:0.5}},
@@ -162,26 +162,26 @@ const LOOKS=[
   {id:'sunset',name:'Sunset',dots:['#E8735A','#F0A98A','#8B6914'],lips:{c:'#E8735A',op:0.85},eyes:{c:'#6B4226',op:0.6},blush:{c:'#E8A87A',op:0.4},brows:{c:'#5C3D1A',op:0.5},highlight:{c:'#FFD9A0',op:0.45}},
   {id:'berry',name:'Berry',dots:['#7B3F6E','#D4789C','#5C2D4E'],lips:{c:'#7B3F6E',op:0.9},eyes:{c:'#5C4033',op:0.5},blush:{c:'#D4789C',op:0.35},brows:{c:'#3D2B1A',op:0.65},highlight:{c:'#F5E8FF',op:0.4}}
 ];
-
+ 
 let currentCat='lips',currentColor='#D4789C',currentOp=0.7;
 let makeup={lips:{c:'#D4789C',op:0.65},eyes:{c:'#5C4033',op:0.3},blush:{c:'#F4A0B0',op:0.25},brows:{c:'#5C3D1A',op:0.5},highlight:{c:'#FFE9B0',op:0.3}};
-
+ 
 const video=document.getElementById('video');
 const canvas=document.getElementById('outputCanvas');
 const ctx=canvas.getContext('2d');
-
+ 
 function hexToRgb(hex){if(!hex||hex.startsWith('rgba'))return{r:0,g:0,b:0};hex=hex.replace('#','');return{r:parseInt(hex.slice(0,2),16),g:parseInt(hex.slice(2,4),16),b:parseInt(hex.slice(4,6),16)};}
-
+ 
 function renderSwatches(){const g=document.getElementById('swatchGrid');g.innerHTML='';(PALETTES[currentCat]||[]).forEach(({c,n})=>{const d=document.createElement('div');d.className='swatch'+(c===currentColor?' sel':'');d.style.background=c;d.title=n;d.onclick=()=>{currentColor=c;makeup[currentCat]={c,op:currentOp};updateProduct();renderSwatches()};g.appendChild(d)});}
-
+ 
 function renderLooks(){const g=document.getElementById('lookGrid');g.innerHTML='';LOOKS.forEach(look=>{const btn=document.createElement('div');btn.className='look-card'+(look.id==='natural'?' active':'');btn.innerHTML=`<div class="look-dots">${look.dots.map(c=>`<span style="background:${c}"></span>`).join('')}</div><div class="look-name">${look.name}</div>`;btn.onclick=()=>{document.querySelectorAll('.look-card').forEach(b=>b.classList.remove('active'));btn.classList.add('active');makeup=JSON.parse(JSON.stringify({lips:look.lips,eyes:look.eyes,blush:look.blush,brows:look.brows,highlight:look.highlight}));const cur=makeup[currentCat];if(cur){currentColor=cur.c;currentOp=cur.op;document.getElementById('opSlider').value=Math.round(cur.op*100);document.getElementById('opVal').textContent=Math.round(cur.op*100)+'%';}renderSwatches();updateProduct();};g.appendChild(btn)});}
-
+ 
 function updateProduct(){const pal=PALETTES[currentCat]||[];const found=pal.find(x=>x.c===currentColor)||pal[0];if(!found)return;document.getElementById('productCard').innerHTML=`<div class="product-card"><div class="product-top"><div class="product-swatch" style="background:${found.c}"></div><div><div class="product-nm">${found.p}</div><div class="product-br">${found.b}</div></div></div><div class="product-price">${found.pr}</div><button class="add-btn">Voir le produit →</button></div>`;}
-
+ 
 function setCategory(cat,btn){currentCat=cat;document.querySelectorAll('.cat-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const cur=makeup[cat];if(cur){currentColor=cur.c;currentOp=cur.op;document.getElementById('opSlider').value=Math.round(cur.op*100);document.getElementById('opVal').textContent=Math.round(cur.op*100)+'%';}renderSwatches();updateProduct();}
-
+ 
 function updateOp(v){currentOp=v/100;document.getElementById('opVal').textContent=v+'%';makeup[currentCat]={c:currentColor,op:currentOp};}
-
+ 
 async function startCamera(){
   try{
     const stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},audio:false});
@@ -192,13 +192,12 @@ async function startCamera(){
     initFaceMesh();
   }catch(e){document.getElementById('statusText').textContent='Caméra non disponible';}
 }
-
+ 
 function initFaceMesh(){
   let faceMeshActive=false;
-
-  // Boucle fallback — ne dessine que si MediaPipe n'est pas actif
+ 
   function drawLoop(){
-    if(!faceMeshActive && video.readyState>=2){
+    if(!faceMeshActive&&video.readyState>=2){
       canvas.width=video.videoWidth||640;
       canvas.height=video.videoHeight||480;
       ctx.save();
@@ -210,7 +209,7 @@ function initFaceMesh(){
     requestAnimationFrame(drawLoop);
   }
   drawLoop();
-
+ 
   try{
     const fm=new FaceMesh({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
     fm.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
@@ -218,14 +217,15 @@ function initFaceMesh(){
       faceMeshActive=true;
       canvas.width=video.videoWidth||640;
       canvas.height=video.videoHeight||480;
+      // Tout se passe dans le même ctx transformé miroir
       ctx.save();
       ctx.translate(canvas.width,0);
       ctx.scale(-1,1);
       ctx.drawImage(video,0,0,canvas.width,canvas.height);
-      ctx.restore();
       if(results.multiFaceLandmarks&&results.multiFaceLandmarks.length>0){
         applyMakeupAR(results.multiFaceLandmarks[0]);
       }
+      ctx.restore();
     });
     const cam=new Camera(video,{
       onFrame:async()=>{try{await fm.send({image:video});}catch(e){}},
@@ -234,37 +234,93 @@ function initFaceMesh(){
     cam.start();
   }catch(e){}
 }
-
-function drawVideoFallback(){
-  document.getElementById('statusText').textContent='Mode aperçu';
-  function loop(){if(video.readyState>=2){canvas.width=video.videoWidth||640;canvas.height=video.videoHeight||480;ctx.save();ctx.translate(canvas.width,0);ctx.scale(-1,1);ctx.drawImage(video,0,0,canvas.width,canvas.height);ctx.restore();}requestAnimationFrame(loop);}
-  loop();
+ 
+// Les coordonnées sont calculées normalement — le miroir vient du ctx.translate/scale
+function pt(lm,i){
+  return{
+    x:lm[i].x*canvas.width,
+    y:lm[i].y*canvas.height
+  };
 }
-
-function onResults(results){
-  canvas.width=video.videoWidth||640;canvas.height=video.videoHeight||480;
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.save();ctx.translate(canvas.width,0);ctx.scale(-1,1);
-  if(results.image){ctx.drawImage(results.image,0,0,canvas.width,canvas.height);}
-  else{ctx.drawImage(video,0,0,canvas.width,canvas.height);}
+ 
+// applyMakeupAR s'exécute à l'intérieur du ctx.save miroir — pas besoin de re-transformer
+function applyMakeupAR(lm){
+  applyLips(lm);
+  applyEyes(lm);
+  applyBlush(lm);
+  applyBrows(lm);
+  applyHighlight(lm);
+}
+ 
+function applyLips(lm){
+  const m=makeup.lips;if(!m||!m.c)return;
+  const rgb=hexToRgb(m.c);const op=Math.min(m.op*0.9,0.85);
+  const oU=[61,185,40,39,37,0,267,269,270,409,291,308,415,310,311,312,13,82,81,80,191,78,61];
+  const oL=[61,146,91,181,84,17,314,405,321,375,291,308,324,318,402,317,14,87,178,88,95,78,61];
+  ctx.save();ctx.globalCompositeOperation='multiply';
+  ctx.beginPath();oU.forEach((idx,i)=>{const p=pt(lm,idx);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});ctx.closePath();
+  ctx.fillStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${op})`;ctx.fill();
+  ctx.beginPath();oL.forEach((idx,i)=>{const p=pt(lm,idx);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});ctx.closePath();
+  ctx.fillStyle=`rgba(${Math.min(rgb.r+15,255)},${rgb.g},${Math.min(rgb.b+10,255)},${op})`;ctx.fill();
   ctx.restore();
-  if(results.multiFaceLandmarks&&results.multiFaceLandmarks.length>0)applyMakeupAR(results.multiFaceLandmarks[0]);
 }
-
-function pt(lm,i){return{x:lm[i].x*canvas.width,y:lm[i].y*canvas.height}}
-
-function applyMakeupAR(lm){ctx.save();applyLips(lm);applyEyes(lm);applyBlush(lm);applyBrows(lm);applyHighlight(lm);ctx.restore();}
-
-function applyLips(lm){const m=makeup.lips;if(!m||!m.c)return;const rgb=hexToRgb(m.c);const op=Math.min(m.op*0.9,0.85);const oU=[61,185,40,39,37,0,267,269,270,409,291,308,415,310,311,312,13,82,81,80,191,78,61];const oL=[61,146,91,181,84,17,314,405,321,375,291,308,324,318,402,317,14,87,178,88,95,78,61];ctx.save();ctx.globalCompositeOperation='multiply';ctx.beginPath();oU.forEach((idx,i)=>{const p=pt(lm,idx);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});ctx.closePath();ctx.fillStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${op})`;ctx.fill();ctx.beginPath();oL.forEach((idx,i)=>{const p=pt(lm,idx);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});ctx.closePath();ctx.fillStyle=`rgba(${Math.min(rgb.r+15,255)},${rgb.g},${Math.min(rgb.b+10,255)},${op})`;ctx.fill();ctx.restore();}
-
-function applyEyes(lm){const m=makeup.eyes;if(!m||!m.c)return;const rgb=hexToRgb(m.c);ctx.save();ctx.globalCompositeOperation='multiply';[[pt(lm,468)],[pt(lm,473)]].forEach(([center])=>{const grad=ctx.createRadialGradient(center.x,center.y-8,0,center.x,center.y-8,28);grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.8})`);grad.addColorStop(0.5,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.45})`);grad.addColorStop(1,'rgba(0,0,0,0)');ctx.beginPath();ctx.ellipse(center.x,center.y-8,28,20,0,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();});ctx.restore();}
-
-function applyBlush(lm){const m=makeup.blush;if(!m||!m.c)return;const rgb=hexToRgb(m.c);const nc=pt(lm,1);[[pt(lm,117)],[pt(lm,346)]].forEach(([center])=>{const size=Math.abs(center.x-nc.x)*0.65;const grad=ctx.createRadialGradient(center.x,center.y+5,0,center.x,center.y+5,size);grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.5})`);grad.addColorStop(0.5,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.22})`);grad.addColorStop(1,'rgba(0,0,0,0)');ctx.save();ctx.globalCompositeOperation='multiply';ctx.beginPath();ctx.ellipse(center.x,center.y+5,size*1.1,size*0.68,0.3,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();ctx.restore();});}
-
-function applyBrows(lm){const m=makeup.brows;if(!m||!m.c)return;const rgb=hexToRgb(m.c);[[70,63,105,66,107,55,65,52,53,46],[300,293,334,296,336,285,295,282,283,276]].forEach(indices=>{const pts=indices.map(i=>pt(lm,i));ctx.save();ctx.globalCompositeOperation='multiply';ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);pts.slice(1).forEach(p=>ctx.lineTo(p.x,p.y));ctx.strokeStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.85})`;ctx.lineWidth=3;ctx.lineCap='round';ctx.lineJoin='round';ctx.stroke();ctx.restore();});}
-
-function applyHighlight(lm){const m=makeup.highlight;if(!m||!m.c||m.op<0.05)return;const rgb=hexToRgb(m.c);[pt(lm,116),pt(lm,345),pt(lm,6)].forEach(center=>{const grad=ctx.createRadialGradient(center.x,center.y,0,center.x,center.y,28);grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.45})`);grad.addColorStop(1,'rgba(0,0,0,0)');ctx.save();ctx.globalCompositeOperation='screen';ctx.beginPath();ctx.ellipse(center.x,center.y,28,20,0,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();ctx.restore();});}
-
+ 
+function applyEyes(lm){
+  const m=makeup.eyes;if(!m||!m.c)return;
+  const rgb=hexToRgb(m.c);
+  ctx.save();ctx.globalCompositeOperation='multiply';
+  [[pt(lm,468)],[pt(lm,473)]].forEach(([center])=>{
+    const grad=ctx.createRadialGradient(center.x,center.y-8,0,center.x,center.y-8,28);
+    grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.8})`);
+    grad.addColorStop(0.5,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.45})`);
+    grad.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.beginPath();ctx.ellipse(center.x,center.y-8,28,20,0,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();
+  });
+  ctx.restore();
+}
+ 
+function applyBlush(lm){
+  const m=makeup.blush;if(!m||!m.c)return;
+  const rgb=hexToRgb(m.c);
+  const nc=pt(lm,1);
+  [[pt(lm,117)],[pt(lm,346)]].forEach(([center])=>{
+    const size=Math.abs(center.x-nc.x)*0.65;
+    const grad=ctx.createRadialGradient(center.x,center.y+5,0,center.x,center.y+5,size);
+    grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.5})`);
+    grad.addColorStop(0.5,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.22})`);
+    grad.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.save();ctx.globalCompositeOperation='multiply';
+    ctx.beginPath();ctx.ellipse(center.x,center.y+5,size*1.1,size*0.68,0.3,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();
+    ctx.restore();
+  });
+}
+ 
+function applyBrows(lm){
+  const m=makeup.brows;if(!m||!m.c)return;
+  const rgb=hexToRgb(m.c);
+  [[70,63,105,66,107,55,65,52,53,46],[300,293,334,296,336,285,295,282,283,276]].forEach(indices=>{
+    const pts=indices.map(i=>pt(lm,i));
+    ctx.save();ctx.globalCompositeOperation='multiply';
+    ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);pts.slice(1).forEach(p=>ctx.lineTo(p.x,p.y));
+    ctx.strokeStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.85})`;
+    ctx.lineWidth=3;ctx.lineCap='round';ctx.lineJoin='round';ctx.stroke();
+    ctx.restore();
+  });
+}
+ 
+function applyHighlight(lm){
+  const m=makeup.highlight;if(!m||!m.c||m.op<0.05)return;
+  const rgb=hexToRgb(m.c);
+  [pt(lm,116),pt(lm,345),pt(lm,6)].forEach(center=>{
+    const grad=ctx.createRadialGradient(center.x,center.y,0,center.x,center.y,28);
+    grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.45})`);
+    grad.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.save();ctx.globalCompositeOperation='screen';
+    ctx.beginPath();ctx.ellipse(center.x,center.y,28,20,0,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();
+    ctx.restore();
+  });
+}
+ 
 renderSwatches();renderLooks();updateProduct();
 </script>
 </body>
