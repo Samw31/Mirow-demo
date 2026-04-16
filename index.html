@@ -200,6 +200,7 @@ function initFaceMesh(){
     fm.onResults(onResults);
     const cam=new Camera(video,{onFrame:async()=>{try{await fm.send({image:video});}catch(e){}},width:640,height:480});
     cam.start();
+    video.style.opacity='0';
   }catch(e){drawVideoFallback();}
 }
 
