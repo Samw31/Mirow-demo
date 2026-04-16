@@ -254,31 +254,31 @@ function applyMakeupAR(lm){
  
 function applyLips(lm){
   const m=makeup.lips;if(!m||!m.c)return;
-  const rgb=hexToRgb(m.c);const op=Math.min(m.op*0.9,0.85);
+  const rgb=hexToRgb(m.c);const op=Math.min(m.op*0.85,0.85);
   const oU=[61,185,40,39,37,0,267,269,270,409,291,308,415,310,311,312,13,82,81,80,191,78,61];
   const oL=[61,146,91,181,84,17,314,405,321,375,291,308,324,318,402,317,14,87,178,88,95,78,61];
-  ctx.save();ctx.globalCompositeOperation='multiply';
+  ctx.save();
   ctx.beginPath();oU.forEach((idx,i)=>{const p=pt(lm,idx);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});ctx.closePath();
   ctx.fillStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${op})`;ctx.fill();
   ctx.beginPath();oL.forEach((idx,i)=>{const p=pt(lm,idx);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});ctx.closePath();
   ctx.fillStyle=`rgba(${Math.min(rgb.r+15,255)},${rgb.g},${Math.min(rgb.b+10,255)},${op})`;ctx.fill();
   ctx.restore();
 }
- 
+
 function applyEyes(lm){
   const m=makeup.eyes;if(!m||!m.c)return;
   const rgb=hexToRgb(m.c);
-  ctx.save();ctx.globalCompositeOperation='multiply';
+  ctx.save();
   [[pt(lm,468)],[pt(lm,473)]].forEach(([center])=>{
     const grad=ctx.createRadialGradient(center.x,center.y-8,0,center.x,center.y-8,28);
-    grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.8})`);
-    grad.addColorStop(0.5,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.45})`);
+    grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.7})`);
+    grad.addColorStop(0.5,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.35})`);
     grad.addColorStop(1,'rgba(0,0,0,0)');
     ctx.beginPath();ctx.ellipse(center.x,center.y-8,28,20,0,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();
   });
   ctx.restore();
 }
- 
+
 function applyBlush(lm){
   const m=makeup.blush;if(!m||!m.c)return;
   const rgb=hexToRgb(m.c);
@@ -286,10 +286,10 @@ function applyBlush(lm){
   [[pt(lm,117)],[pt(lm,346)]].forEach(([center])=>{
     const size=Math.abs(center.x-nc.x)*0.65;
     const grad=ctx.createRadialGradient(center.x,center.y+5,0,center.x,center.y+5,size);
-    grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.5})`);
-    grad.addColorStop(0.5,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.22})`);
+    grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.45})`);
+    grad.addColorStop(0.5,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.2})`);
     grad.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.save();ctx.globalCompositeOperation='multiply';
+    ctx.save();
     ctx.beginPath();ctx.ellipse(center.x,center.y+5,size*1.1,size*0.68,0.3,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();
     ctx.restore();
   });
