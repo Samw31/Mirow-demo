@@ -216,50 +216,34 @@ function applyMakeupAR(lm,W,H){
 function applyLips(lm,W,H){
   const m=makeup.lips;if(!m||!m.c)return;
   const rgb=hexToRgb(m.c);
-  const op=m.op*0.75;
-
+  const op=m.op*0.65;
   const oU=[61,185,40,39,37,0,267,269,270,409,291,308,415,310,311,312,13,82,81,80,191,78,61];
   const oL=[61,146,91,181,84,17,314,405,321,375,291,308,324,318,402,317,14,87,178,88,95,78,61];
-
-  // Créer un canvas temporaire pour appliquer le flou de bord
   const tmp=document.createElement('canvas');
   tmp.width=W;tmp.height=H;
   const tc=tmp.getContext('2d');
-
-  // Lèvre supérieure
   tc.beginPath();
   oU.forEach((idx,i)=>{const p=pt(lm,idx,W,H);i===0?tc.moveTo(p.x,p.y):tc.lineTo(p.x,p.y)});
   tc.closePath();
   tc.fillStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${op})`;
   tc.fill();
-
-  // Lèvre inférieure — légèrement plus claire pour effet relief
   tc.beginPath();
   oL.forEach((idx,i)=>{const p=pt(lm,idx,W,H);i===0?tc.moveTo(p.x,p.y):tc.lineTo(p.x,p.y)});
   tc.closePath();
   tc.fillStyle=`rgba(${Math.min(rgb.r+25,255)},${Math.min(rgb.g+10,255)},${Math.min(rgb.b+15,255)},${op})`;
   tc.fill();
-
-  // Reflet brillant au centre de la lèvre supérieure
   const lipCenter=pt(lm,13,W,H);
   const lipL=pt(lm,61,W,H);
   const lipR=pt(lm,291,W,H);
   const lipWidth=Math.abs(lipR.x-lipL.x);
-  const shineGrad=tc.createRadialGradient(lipCenter.x,lipCenter.y-2,0,lipCenter.x,lipCenter.y-2,lipWidth*0.25);
-  shineGrad.addColorStop(0,'rgba(255,255,255,0.18)');
+  const shineGrad=tc.createRadialGradient(lipCenter.x,lipCenter.y-2,0,lipCenter.x,lipCenter.y-2,lipWidth*0.2);
+  shineGrad.addColorStop(0,'rgba(255,255,255,0.15)');
   shineGrad.addColorStop(1,'rgba(255,255,255,0)');
   tc.beginPath();
   oU.forEach((idx,i)=>{const p=pt(lm,idx,W,H);i===0?tc.moveTo(p.x,p.y):tc.lineTo(p.x,p.y)});
   tc.closePath();
-  tc.fillStyle=shineGrad;
-  tc.fill();
-
-  // Appliquer avec filtre de flou léger pour les bords
-  ctx.save();
-  ctx.filter='blur(1.5px)';
-  ctx.drawImage(tmp,0,0);
-  ctx.filter='none';
-  ctx.restore();
+  tc.fillStyle=shineGrad;tc.fill();
+  ctx.save();ctx.filter='blur(2px)';ctx.drawImage(tmp,0,0);ctx.filter='none';ctx.restore();
 }
 
 function applyEyes(lm,W,H){
@@ -321,43 +305,24 @@ function applyBlush(lm,W,H){
 function applyBrows(lm,W,H){
   const m=makeup.brows;if(!m||!m.c)return;
   const rgb=hexToRgb(m.c);
-
-  // Indices sourcils — on utilise uniquement les points centraux pour une ligne fine
   const browL=[70,63,105,66,107,55,65,52,53,46];
   const browR=[300,293,334,296,336,285,295,282,283,276];
-
   [browL,browR].forEach(indices=>{
     const pts=indices.map(i=>pt(lm,i,W,H));
-
     const tmp=document.createElement('canvas');
     tmp.width=W;tmp.height=H;
     const tc=tmp.getContext('2d');
-
-    // Ligne principale fine
     tc.beginPath();
     tc.moveTo(pts[0].x,pts[0].y);
     pts.slice(1).forEach(p=>tc.lineTo(p.x,p.y));
-    tc.strokeStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.7})`;
-    tc.lineWidth=2;
-    tc.lineCap='round';
-    tc.lineJoin='round';
-    tc.stroke();
-
-    // Remplissage léger pour épaisseur naturelle
+    tc.strokeStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.5})`;
+    tc.lineWidth=1.5;tc.lineCap='round';tc.lineJoin='round';tc.stroke();
     tc.beginPath();
     tc.moveTo(pts[0].x,pts[0].y);
     pts.forEach(p=>tc.lineTo(p.x,p.y));
-    tc.strokeStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.35})`;
-    tc.lineWidth=5;
-    tc.lineCap='round';
-    tc.lineJoin='round';
-    tc.stroke();
-
-    ctx.save();
-    ctx.filter='blur(1px)';
-    ctx.drawImage(tmp,0,0);
-    ctx.filter='none';
-    ctx.restore();
+    tc.strokeStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.2})`;
+    tc.lineWidth=4;tc.lineCap='round';tc.lineJoin='round';tc.stroke();
+    ctx.save();ctx.filter='blur(1.2px)';ctx.drawImage(tmp,0,0);ctx.filter='none';ctx.restore();
   });
 }
 
