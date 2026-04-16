@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mirow — Essayage Maquillage AR</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300&family=Jost:wght@300;400;500&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Jost',sans-serif;background:#0d0d0d;color:#f0ece6;overflow-x:hidden;min-height:100vh}
+:root{--rose:#d4789c;--rose-d:#9b3d6a;--gold:#c9924a;--cream:#f0ece6;--dark:#0d0d0d;--panel:#161616;--border:rgba(240,236,230,0.08)}
+.app{display:flex;flex-direction:column;min-height:100vh}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-bottom:0.5px solid var(--border);background:#0d0d0d}
+.logo{font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:0.15em;color:var(--cream)}
+.logo span{color:#7F77DD;font-style:italic}
+.status-wrap{display:flex;align-items:center;gap:8px}
+.status-dot{width:7px;height:7px;border-radius:50%;background:#555;transition:background 0.3s}
+.status-dot.on{background:#4CAF50;box-shadow:0 0 6px rgba(76,175,80,0.5)}
+.status-text{font-size:11px;color:rgba(240,236,230,0.5);letter-spacing:0.06em}
+.main{display:flex;flex:1;gap:0}
+.cam-area{flex:1;position:relative;background:#000;display:flex;align-items:center;justify-content:center;min-height:500px}
+#video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);opacity:0}
+#outputCanvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.cam-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px}
+.cam-overlay.hidden{display:none}
+.cam-frame{width:160px;height:200px;border:1px solid rgba(212,120,156,0.3);border-radius:80px 80px 50px 50px;animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{border-color:rgba(212,120,156,0.25)}50%{border-color:rgba(212,120,156,0.6)}}
+.cam-hint{font-size:11px;color:rgba(240,236,230,0.45);letter-spacing:0.1em;text-transform:uppercase;text-align:center;padding:0 1rem}
+.start-btn{background:transparent;border:0.5px solid rgba(212,120,156,0.45);color:var(--rose);padding:11px 32px;border-radius:30px;font-family:'Jost',sans-serif;font-size:12px;font-weight:400;letter-spacing:0.12em;cursor:pointer;text-transform:uppercase;transition:all 0.2s}
+.start-btn:hover{background:rgba(212,120,156,0.1);border-color:var(--rose)}
+.panel{width:290px;background:var(--panel);border-left:0.5px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;max-height:calc(100vh - 52px)}
+.panel-section{padding:16px;border-bottom:0.5px solid var(--border)}
+.section-label{font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:rgba(240,236,230,0.3);margin-bottom:12px}
+.cat-row{display:flex;gap:5px;flex-wrap:wrap}
+.cat-btn{font-family:'Jost',sans-serif;font-size:10px;font-weight:400;letter-spacing:0.06em;text-transform:uppercase;padding:5px 11px;border-radius:20px;border:0.5px solid var(--border);background:transparent;color:rgba(240,236,230,0.45);cursor:pointer;transition:all 0.15s}
+.cat-btn:hover{border-color:rgba(212,120,156,0.4);color:var(--rose)}
+.cat-btn.active{border-color:var(--rose);background:rgba(212,120,156,0.1);color:var(--rose)}
+.swatch-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:12px}
+.swatch{width:100%;aspect-ratio:1;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:all 0.15s}
+.swatch:hover{transform:scale(1.12)}
+.swatch.sel{border-color:#fff;transform:scale(1.08)}
+.slider-row{margin-top:4px}
+.slider-label{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+.slider-label span:first-child{font-size:10px;color:rgba(240,236,230,0.4);letter-spacing:0.05em}
+.slider-label span:last-child{font-size:10px;font-weight:500;color:var(--cream)}
+input[type=range]{width:100%;height:2px;-webkit-appearance:none;background:rgba(240,236,230,0.12);border-radius:2px;outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--rose);cursor:pointer;border:2px solid #0d0d0d}
+.look-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.look-card{padding:9px 7px;border:0.5px solid var(--border);border-radius:8px;background:transparent;cursor:pointer;font-family:'Jost',sans-serif;text-align:center;transition:all 0.15s}
+.look-card:hover{border-color:rgba(212,120,156,0.3);background:rgba(255,255,255,0.02)}
+.look-card.active{border-color:var(--rose);background:rgba(212,120,156,0.08)}
+.look-dots{display:flex;gap:3px;justify-content:center;margin-bottom:5px}
+.look-dots span{width:8px;height:8px;border-radius:50%;display:block}
+.look-name{font-size:10px;color:rgba(240,236,230,0.55);letter-spacing:0.05em;text-transform:uppercase}
+.look-card.active .look-name{color:var(--rose)}
+.product-card{border:0.5px solid var(--border);border-radius:8px;padding:11px}
+.product-top{display:flex;gap:10px;align-items:center;margin-bottom:9px}
+.product-swatch{width:34px;height:34px;border-radius:7px;flex-shrink:0}
+.product-nm{font-size:12px;font-weight:400;color:var(--cream);line-height:1.3}
+.product-br{font-size:10px;color:rgba(240,236,230,0.35);margin-top:2px}
+.product-price{font-family:'Cormorant Garamond',serif;font-size:18px;font-weight:300;color:var(--rose);letter-spacing:0.04em}
+.add-btn{width:100%;margin-top:9px;padding:9px;background:var(--rose);color:#fff;border:none;border-radius:6px;font-family:'Jost',sans-serif;font-size:11px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;transition:all 0.15s}
+.add-btn:hover{background:var(--rose-d)}
+.toggle-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+.toggle-label{font-size:10px;color:rgba(240,236,230,0.45);letter-spacing:0.05em}
+.toggle{width:30px;height:17px;background:rgba(240,236,230,0.1);border-radius:9px;cursor:pointer;position:relative;transition:background 0.2s}
+.toggle.on{background:var(--rose)}
+.toggle::after{content:'';position:absolute;top:2.5px;left:2.5px;width:12px;height:12px;background:#fff;border-radius:50%;transition:left 0.2s}
+.toggle.on::after{left:15.5px}
+.footer-bar{padding:10px 16px;border-top:0.5px solid var(--border);text-align:center}
+.footer-txt{font-size:9px;color:rgba(240,236,230,0.2);letter-spacing:0.08em}
+.footer-txt span{color:#7F77DD}
+@media(max-width:640px){.main{flex-direction:column}.panel{width:100%;max-height:none;border-left:none;border-top:0.5px solid var(--border)}.cam-area{min-height:300px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="logo">mir<span>o</span>w</div>
+    <div class="status-wrap">
+      <div class="status-dot" id="statusDot"></div>
+      <span class="status-text" id="statusText">Prête à démarrer</span>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="cam-area">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="outputCanvas"></canvas>
+      <div class="cam-overlay" id="camOverlay">
+        <div class="cam-frame"></div>
+        <p class="cam-hint">Positionnez votre visage dans le cadre</p>
+        <button class="start-btn" onclick="startCamera()">Activer la caméra</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-section">
+        <div class="section-label">Catégorie</div>
+        <div class="cat-row">
+          <button class="cat-btn active" onclick="setCategory('lips',this)">Lèvres</button>
+          <button class="cat-btn" onclick="setCategory('eyes',this)">Yeux</button>
+          <button class="cat-btn" onclick="setCategory('blush',this)">Blush</button>
+          <button class="cat-btn" onclick="setCategory('brows',this)">Sourcils</button>
+          <button class="cat-btn" onclick="setCategory('highlight',this)">Éclat</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-label">Teinte</div>
+        <div class="swatch-grid" id="swatchGrid"></div>
+        <div class="slider-row">
+          <div class="slider-label"><span>Intensité</span><span id="opVal">70%</span></div>
+          <input type="range" min="10" max="100" value="70" id="opSlider" oninput="updateOp(this.value)">
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-label">Looks</div>
+        <div class="look-grid" id="lookGrid"></div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-label">Options</div>
+        <div class="toggle-row">
+          <span class="toggle-label">Lissage peau</span>
+          <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Contour visage</span>
+          <div class="toggle" onclick="this.classList.toggle('on')"></div>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-label">Produit suggéré</div>
+        <div id="productCard"></div>
+      </div>
+
+      <div class="footer-bar">
+        <div class="footer-txt">Propulsé par <span>Mirow AR</span> · mirowia.com</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+<script>
+const PALETTES = {
+  lips:[
+    {c:'#D4789C',n:'Rose Poudré',p:'Rouge Velours',b:"L'Oréal",pr:'14,90 €'},
+    {c:'#E8735A',n:'Corail Vif',p:'Corail Passion',b:'NYX',pr:'9,90 €'},
+    {c:'#9B3D6A',n:'Framboise',p:'Matte Framboise',b:'Maybelline',pr:'11,50 €'},
+    {c:'#7B3F6E',n:'Prune',p:'Plum Intense',b:'MAC',pr:'24,00 €'},
+    {c:'#5C2D4E',n:'Berry',p:'Berry Midnight',b:'Urban Decay',pr:'21,00 €'},
+    {c:'#C49A7A',n:'Nude Sable',p:'Nude Sable',b:'Charlotte Tilbury',pr:'29,00 €'},
+    {c:'#F0A98A',n:'Pêche',p:'Peachy Keen',b:'NARS',pr:'27,00 €'},
+    {c:'#B07070',n:'Terracotta',p:'Terracotta Matte',b:'Fenty Beauty',pr:'22,00 €'},
+    {c:'#8B2252',n:'Cerise',p:'Cherry Bomb',b:'Bobbi Brown',pr:'31,00 €'},
+    {c:'#D04060',n:'Rouge',p:'Russian Red',b:'MAC',pr:'24,00 €'},
+    {c:'#602040',n:'Bordeaux',p:'Dark Side',b:'Chanel',pr:'42,00 €'},
+    {c:'#E8C4A0',n:'Café lait',p:'Café au Lait',b:'Huda Beauty',pr:'18,00 €'},
+  ],
+  eyes:[
+    {c:'#4A2F1A',n:'Brun Profond',p:'Palette Smoky',b:'Urban Decay',pr:'39,00 €'},
+    {c:'#1A1A2E',n:'Navy Noir',p:'Navy Night',b:'Benefit',pr:'28,00 €'},
+    {c:'#7B5EA7',n:'Violet Fumé',p:'Violet Smoke',b:'Charlotte Tilbury',pr:'56,00 €'},
+    {c:'#1A4A6E',n:'Bleu Marine',p:'Blue Steel',b:'Armani Beauty',pr:'48,00 €'},
+    {c:'#6B4226',n:'Bronze',p:'Sunset Bronze',b:'Too Faced',pr:'35,00 €'},
+    {c:'#1A1A1A',n:'Noir Intense',p:'Noir Intense',b:'Lancôme',pr:'33,00 €'},
+    {c:'#8B6914',n:'Or Antique',p:'Gold Digger',b:'Jeffree Star',pr:'19,00 €'},
+    {c:'#5C4033',n:'Taupe',p:'Taupe Mauve',b:'Anastasia BH',pr:'45,00 €'},
+    {c:'#6E4B3A',n:'Brique',p:'Brick Road',b:'Pat McGrath',pr:'52,00 €'},
+    {c:'#704060',n:'Prune Yeux',p:'Plum Smoky',b:'Dior Beauty',pr:'55,00 €'},
+    {c:'#4A6741',n:'Kaki',p:'Kaki Fusion',b:'Nyx',pr:'15,00 €'},
+    {c:'#2C3A4A',n:'Gris Ardoise',p:'Slate Grey',b:'Bobbi Brown',pr:'38,00 €'},
+  ],
+  blush:[
+    {c:'#F4A0B0',n:'Bébé Rose',p:'Blush Bébé',b:'NARS',pr:'34,00 €'},
+    {c:'#E87A7A',n:'Pêche Vive',p:'Orgasm',b:'NARS',pr:'34,00 €'},
+    {c:'#D4789C',n:'Rose Frais',p:'Joues Contraste',b:'Chanel',pr:'47,00 €'},
+    {c:'#F0B07A',n:'Pêche Abricot',p:'Peach Pop',b:'Clinique',pr:'28,00 €'},
+    {c:'#E8A87A',n:'Corail',p:'Coralista',b:'Benefit',pr:'32,00 €'},
+    {c:'#D4909A',n:'Mauve Rosé',p:'Mauve Haze',b:'Rare Beauty',pr:'26,00 €'},
+    {c:'#C47898',n:'Rose Ancien',p:'Rose Antique',b:'Dior',pr:'44,00 €'},
+    {c:'#F0C0B0',n:'Magnolia',p:'Magnolia',b:'Tarte',pr:'29,00 €'},
+    {c:'#E89080',n:'Brique',p:'Brick Blush',b:'Fenty Beauty',pr:'25,00 €'},
+  ],
+  brows:[
+    {c:'#3D2B1A',n:'Brun Foncé',p:'Brow Wiz Brunette',b:'Anastasia BH',pr:'23,00 €'},
+    {c:'#5C3D1A',n:'Brun Moyen',p:'Boy Brow Brown',b:'Glossier',pr:'18,00 €'},
+    {c:'#8B6914',n:'Châtain',p:'Brow Pencil Chestnut',b:'NYX',pr:'12,00 €'},
+    {c:'#2C1810',n:'Noir',p:'Micro Brow Pencil',b:'e.l.f.',pr:'10,00 €'},
+    {c:'#C49A7A',n:'Blond Doré',p:'Brow Pomade Honey',b:'MAC',pr:'22,00 €'},
+    {c:'#6B4226',n:'Auburn',p:'Brow Definer Auburn',b:'Benefit',pr:'25,00 €'},
+  ],
+  highlight:[
+    {c:'#FFE9B0',n:'Or Champagne',p:'Highlighter Sun Lit',b:'NARS',pr:'38,00 €'},
+    {c:'#FFF0C0',n:'Doré Nacré',p:'Mary-Lou Manizer',b:'TheBalm',pr:'28,00 €'},
+    {c:'#FFD9A0',n:'Bronze Soleil',p:'Killawatt Bronze',b:'Fenty Beauty',pr:'36,00 €'},
+    {c:'#F5E8FF',n:'Parme Irisé',p:'Becca Pearl',b:'BECCA',pr:'42,00 €'},
+    {c:'#E0F5FF',n:'Perle Bleue',p:'Blue Light',b:'Charlotte Tilbury',pr:'44,00 €'},
+    {c:'#FFEEDD',n:'Ivoire Satin',p:'Soft Focus',b:'Laura Mercier',pr:'32,00 €'},
+  ]
+};
+
+const LOOKS = [
+  {id:'natural',name:'Naturel',dots:['#E8A87A','#D4789C','#C49A7A'],lips:{c:'#D4789C',op:0.65},eyes:{c:'#5C4033',op:0.3},blush:{c:'#F4A0B0',op:0.25},brows:{c:'#5C3D1A',op:0.5},highlight:{c:'#FFE9B0',op:0.3}},
+  {id:'glam',name:'Glam',dots:['#7B3F6E','#E8735A','#C9924A'],lips:{c:'#9B3D6A',op:0.9},eyes:{c:'#7B3F6E',op:0.7},blush:{c:'#E87A7A',op:0.45},brows:{c:'#3D2B1A',op:0.7},highlight:{c:'#FFD9A0',op:0.5}},
+  {id:'nude',name:'Nude',dots:['#C49A7A','#DDB89A','#E8D0C0'],lips:{c:'#DDB89A',op:0.75},eyes:{c:'#8B6914',op:0.25},blush:{c:'#F0C0B0',op:0.2},brows:{c:'#5C3D1A',op:0.4},highlight:{c:'#FFF0C0',op:0.35}},
+  {id:'bold',name:'Bold',dots:['#5C2D4E','#9B3D6A','#1A1A1A'],lips:{c:'#5C2D4E',op:1},eyes:{c:'#1A1A1A',op:0.85},blush:{c:'#C47898',op:0.4},brows:{c:'#2C1810',op:0.9},highlight:{c:'rgba(0,0,0,0)',op:0}},
+  {id:'sunset',name:'Sunset',dots:['#E8735A','#F0A98A','#8B6914'],lips:{c:'#E8735A',op:0.85},eyes:{c:'#6B4226',op:0.6},blush:{c:'#E8A87A',op:0.4},brows:{c:'#5C3D1A',op:0.5},highlight:{c:'#FFD9A0',op:0.45}},
+  {id:'berry',name:'Berry',dots:['#7B3F6E','#D4789C','#5C2D4E'],lips:{c:'#7B3F6E',op:0.9},eyes:{c:'#5C4033',op:0.5},blush:{c:'#D4789C',op:0.35},brows:{c:'#3D2B1A',op:0.65},highlight:{c:'#F5E8FF',op:0.4}},
+];
+
+let currentCat='lips', currentColor='#D4789C', currentOp=0.7;
+let makeup={lips:{c:'#D4789C',op:0.65},eyes:{c:'#5C4033',op:0.3},blush:{c:'#F4A0B0',op:0.25},brows:{c:'#5C3D1A',op:0.5},highlight:{c:'#FFE9B0',op:0.3}};
+
+const video=document.getElementById('video');
+const canvas=document.getElementById('outputCanvas');
+const ctx=canvas.getContext('2d');
+
+function hexToRgb(hex){
+  if(!hex||hex.startsWith('rgba'))return{r:0,g:0,b:0};
+  hex=hex.replace('#','');
+  return{r:parseInt(hex.slice(0,2),16),g:parseInt(hex.slice(2,4),16),b:parseInt(hex.slice(4,6),16)};
+}
+
+function renderSwatches(){
+  const g=document.getElementById('swatchGrid');
+  g.innerHTML='';
+  (PALETTES[currentCat]||[]).forEach(({c,n})=>{
+    const d=document.createElement('div');
+    d.className='swatch'+(c===currentColor?' sel':'');
+    d.style.background=c;d.title=n;
+    d.onclick=()=>{currentColor=c;makeup[currentCat]={c,op:currentOp};updateProduct();renderSwatches()};
+    g.appendChild(d);
+  });
+}
+
+function renderLooks(){
+  const g=document.getElementById('lookGrid');
+  g.innerHTML='';
+  LOOKS.forEach(look=>{
+    const btn=document.createElement('div');
+    btn.className='look-card'+(look.id==='natural'?' active':'');
+    btn.innerHTML=`<div class="look-dots">${look.dots.map(c=>`<span style="background:${c}"></span>`).join('')}</div><div class="look-name">${look.name}</div>`;
+    btn.onclick=()=>{
+      document.querySelectorAll('.look-card').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      makeup=JSON.parse(JSON.stringify({lips:look.lips,eyes:look.eyes,blush:look.blush,brows:look.brows,highlight:look.highlight}));
+      const cur=makeup[currentCat];
+      if(cur){currentColor=cur.c;currentOp=cur.op;document.getElementById('opSlider').value=Math.round(cur.op*100);document.getElementById('opVal').textContent=Math.round(cur.op*100)+'%';}
+      renderSwatches();updateProduct();
+    };
+    g.appendChild(btn);
+  });
+}
+
+function updateProduct(){
+  const pal=PALETTES[currentCat]||[];
+  const found=pal.find(x=>x.c===currentColor)||pal[0];
+  if(!found)return;
+  document.getElementById('productCard').innerHTML=`
+    <div class="product-card">
+      <div class="product-top">
+        <div class="product-swatch" style="background:${found.c}"></div>
+        <div><div class="product-nm">${found.p}</div><div class="product-br">${found.b}</div></div>
+      </div>
+      <div class="product-price">${found.pr}</div>
+      <button class="add-btn">Voir le produit →</button>
+    </div>`;
+}
+
+function setCategory(cat,btn){
+  currentCat=cat;
+  document.querySelectorAll('.cat-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const cur=makeup[cat];
+  if(cur){currentColor=cur.c;currentOp=cur.op;document.getElementById('opSlider').value=Math.round(cur.op*100);document.getElementById('opVal').textContent=Math.round(cur.op*100)+'%';}
+  renderSwatches();updateProduct();
+}
+
+function updateOp(v){
+  currentOp=v/100;
+  document.getElementById('opVal').textContent=v+'%';
+  makeup[currentCat]={c:currentColor,op:currentOp};
+}
+
+async function startCamera(){
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},audio:false});
+    video.srcObject=stream;
+    await video.play();
+    document.getElementById('camOverlay').classList.add('hidden');
+    document.getElementById('statusDot').classList.add('on');
+    document.getElementById('statusText').textContent='Détection active';
+    initFaceMesh();
+  }catch(e){
+    document.getElementById('statusText').textContent='Caméra non disponible';
+    console.error(e);
+  }
+}
+
+function initFaceMesh(){
+  const fm=new FaceMesh({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
+  fm.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
+  fm.onResults(onResults);
+  const cam=new Camera(video,{onFrame:async()=>{await fm.send({image:video})},width:1280,height:720});
+  cam.start();
+}
+
+function onResults(results){
+  canvas.width=video.videoWidth||640;
+  canvas.height=video.videoHeight||480;
+  ctx.save();ctx.translate(canvas.width,0);ctx.scale(-1,1);
+  ctx.drawImage(results.image,0,0,canvas.width,canvas.height);
+  ctx.restore();
+  if(results.multiFaceLandmarks&&results.multiFaceLandmarks.length>0){
+    applyMakeupAR(results.multiFaceLandmarks[0]);
+  }
+}
+
+function pt(lm,i){return{x:lm[i].x*canvas.width,y:lm[i].y*canvas.height}}
+
+function applyMakeupAR(lm){
+  ctx.save();
+  applyLips(lm);applyEyes(lm);applyBlush(lm);applyBrows(lm);applyHighlight(lm);
+  ctx.restore();
+}
+
+function applyLips(lm){
+  const m=makeup.lips;if(!m||!m.c)return;
+  const rgb=hexToRgb(m.c);const op=Math.min(m.op*0.9,0.85);
+  const outerUpper=[61,185,40,39,37,0,267,269,270,409,291,308,415,310,311,312,13,82,81,80,191,78,61];
+  const outerLower=[61,146,91,181,84,17,314,405,321,375,291,308,324,318,402,317,14,87,178,88,95,78,61];
+  ctx.save();ctx.globalCompositeOperation='multiply';
+  ctx.beginPath();outerUpper.forEach((idx,i)=>{const p=pt(lm,idx);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});ctx.closePath();
+  ctx.fillStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${op})`;ctx.fill();
+  const r2=hexToRgb(m.c);
+  ctx.beginPath();outerLower.forEach((idx,i)=>{const p=pt(lm,idx);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});ctx.closePath();
+  ctx.fillStyle=`rgba(${Math.min(r2.r+15,255)},${r2.g},${Math.min(r2.b+10,255)},${op})`;ctx.fill();
+  ctx.globalCompositeOperation='screen';
+  const lc=pt(lm,13);const ll=pt(lm,40);const lr=pt(lm,270);
+  const lg=ctx.createLinearGradient(ll.x,lc.y-4,lr.x,lc.y-4);
+  lg.addColorStop(0,'rgba(255,255,255,0)');lg.addColorStop(0.5,'rgba(255,255,255,0.1)');lg.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.fillStyle=lg;ctx.beginPath();outerUpper.forEach((idx,i)=>{const p=pt(lm,idx);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});ctx.closePath();ctx.fill();
+  ctx.restore();
+}
+
+function applyEyes(lm){
+  const m=makeup.eyes;if(!m||!m.c)return;
+  const rgb=hexToRgb(m.c);
+  ctx.save();ctx.globalCompositeOperation='multiply';
+  [[pt(lm,468),1],[pt(lm,473),-1]].forEach(([center])=>{
+    const grad=ctx.createRadialGradient(center.x,center.y-8,0,center.x,center.y-8,28);
+    grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.8})`);
+    grad.addColorStop(0.5,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.45})`);
+    grad.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.beginPath();ctx.ellipse(center.x,center.y-8,28,20,0,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();
+  });
+  ctx.globalCompositeOperation='source-over';
+  [[61,40,37,0,267,270,291],[285,295,282,283,276,300,293]].forEach(indices=>{
+    ctx.beginPath();indices.forEach((idx,i)=>{const p=pt(lm,idx);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});
+    ctx.strokeStyle=`rgba(${Math.floor(rgb.r*0.35)},${Math.floor(rgb.g*0.35)},${Math.floor(rgb.b*0.35)},${Math.min(m.op*0.85,0.85)})`;
+    ctx.lineWidth=1.2;ctx.stroke();
+  });
+  ctx.restore();
+}
+
+function applyBlush(lm){
+  const m=makeup.blush;if(!m||!m.c)return;
+  const rgb=hexToRgb(m.c);
+  const nc=pt(lm,1);
+  [[pt(lm,117),1],[pt(lm,346),-1]].forEach(([center])=>{
+    const size=Math.abs(center.x-nc.x)*0.65;
+    const grad=ctx.createRadialGradient(center.x,center.y+5,0,center.x,center.y+5,size);
+    grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.5})`);
+    grad.addColorStop(0.5,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.22})`);
+    grad.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.save();ctx.globalCompositeOperation='multiply';
+    ctx.beginPath();ctx.ellipse(center.x,center.y+5,size*1.1,size*0.68,0.3,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();
+    ctx.restore();
+  });
+}
+
+function applyBrows(lm){
+  const m=makeup.brows;if(!m||!m.c)return;
+  const rgb=hexToRgb(m.c);
+  [[70,63,105,66,107,55,65,52,53,46],[300,293,334,296,336,285,295,282,283,276]].forEach(indices=>{
+    const pts=indices.map(i=>pt(lm,i));
+    ctx.save();ctx.globalCompositeOperation='multiply';
+    ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);pts.slice(1).forEach(p=>ctx.lineTo(p.x,p.y));
+    ctx.strokeStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.85})`;
+    ctx.lineWidth=3;ctx.lineCap='round';ctx.lineJoin='round';ctx.stroke();
+    ctx.restore();
+  });
+}
+
+function applyHighlight(lm){
+  const m=makeup.highlight;if(!m||!m.c||m.op<0.05)return;
+  const rgb=hexToRgb(m.c);
+  [pt(lm,116),pt(lm,345),pt(lm,6)].forEach(center=>{
+    const grad=ctx.createRadialGradient(center.x,center.y,0,center.x,center.y,28);
+    grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.45})`);
+    grad.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.save();ctx.globalCompositeOperation='screen';
+    ctx.beginPath();ctx.ellipse(center.x,center.y,28,20,0,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();
+    ctx.restore();
+  });
+}
+
+renderSwatches();renderLooks();updateProduct();
+</script>
+</body>
+</html>
