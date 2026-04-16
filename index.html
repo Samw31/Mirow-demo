@@ -148,16 +148,16 @@ const PALETTES={
   highlight:[{c:'#FFE9B0',n:'Or Champagne',p:'Sun Lit',b:'NARS',pr:'38,00 €'},{c:'#FFF0C0',n:'Doré Nacré',p:'Mary-Lou',b:'TheBalm',pr:'28,00 €'},{c:'#FFD9A0',n:'Bronze Soleil',p:'Killawatt',b:'Fenty Beauty',pr:'36,00 €'},{c:'#F5E8FF',n:'Parme Irisé',p:'Becca Pearl',b:'BECCA',pr:'42,00 €'},{c:'#E0F5FF',n:'Perle Bleue',p:'Blue Light',b:'Charlotte Tilbury',pr:'44,00 €'},{c:'#FFEEDD',n:'Ivoire Satin',p:'Soft Focus',b:'Laura Mercier',pr:'32,00 €'}]
 };
 const LOOKS=[
-  {id:'natural',name:'Naturel',dots:['#E8A87A','#D4789C','#C49A7A'],lips:{c:'#D4789C',op:0.65},eyes:{c:'#5C4033',op:0.3},blush:{c:'#F4A0B0',op:0.25},brows:{c:'#5C3D1A',op:0.5},highlight:{c:'#FFE9B0',op:0.3}},
-  {id:'glam',name:'Glam',dots:['#7B3F6E','#E8735A','#C9924A'],lips:{c:'#9B3D6A',op:0.9},eyes:{c:'#7B3F6E',op:0.7},blush:{c:'#E87A7A',op:0.45},brows:{c:'#3D2B1A',op:0.7},highlight:{c:'#FFD9A0',op:0.5}},
-  {id:'nude',name:'Nude',dots:['#C49A7A','#DDB89A','#E8D0C0'],lips:{c:'#DDB89A',op:0.75},eyes:{c:'#8B6914',op:0.25},blush:{c:'#F0C0B0',op:0.2},brows:{c:'#5C3D1A',op:0.4},highlight:{c:'#FFF0C0',op:0.35}},
-  {id:'bold',name:'Bold',dots:['#5C2D4E','#9B3D6A','#1A1A1A'],lips:{c:'#5C2D4E',op:1},eyes:{c:'#1A1A1A',op:0.85},blush:{c:'#C47898',op:0.4},brows:{c:'#2C1810',op:0.9},highlight:{c:'rgba(0,0,0,0)',op:0}},
-  {id:'sunset',name:'Sunset',dots:['#E8735A','#F0A98A','#8B6914'],lips:{c:'#E8735A',op:0.85},eyes:{c:'#6B4226',op:0.6},blush:{c:'#E8A87A',op:0.4},brows:{c:'#5C3D1A',op:0.5},highlight:{c:'#FFD9A0',op:0.45}},
-  {id:'berry',name:'Berry',dots:['#7B3F6E','#D4789C','#5C2D4E'],lips:{c:'#7B3F6E',op:0.9},eyes:{c:'#5C4033',op:0.5},blush:{c:'#D4789C',op:0.35},brows:{c:'#3D2B1A',op:0.65},highlight:{c:'#F5E8FF',op:0.4}}
+  {id:'natural',name:'Naturel',dots:['#E8A87A','#D4789C','#C49A7A'],lips:{c:'#D4789C',op:0.55},eyes:{c:'#5C4033',op:0.25},blush:{c:'#F4A0B0',op:0.2},brows:{c:'#5C3D1A',op:0.35},highlight:{c:'#FFE9B0',op:0.25}},
+  {id:'glam',name:'Glam',dots:['#7B3F6E','#E8735A','#C9924A'],lips:{c:'#9B3D6A',op:0.8},eyes:{c:'#7B3F6E',op:0.6},blush:{c:'#E87A7A',op:0.35},brows:{c:'#3D2B1A',op:0.5},highlight:{c:'#FFD9A0',op:0.4}},
+  {id:'nude',name:'Nude',dots:['#C49A7A','#DDB89A','#E8D0C0'],lips:{c:'#DDB89A',op:0.6},eyes:{c:'#8B6914',op:0.2},blush:{c:'#F0C0B0',op:0.15},brows:{c:'#5C3D1A',op:0.3},highlight:{c:'#FFF0C0',op:0.3}},
+  {id:'bold',name:'Bold',dots:['#5C2D4E','#9B3D6A','#1A1A1A'],lips:{c:'#5C2D4E',op:0.9},eyes:{c:'#1A1A1A',op:0.7},blush:{c:'#C47898',op:0.3},brows:{c:'#2C1810',op:0.6},highlight:{c:'rgba(0,0,0,0)',op:0}},
+  {id:'sunset',name:'Sunset',dots:['#E8735A','#F0A98A','#8B6914'],lips:{c:'#E8735A',op:0.75},eyes:{c:'#6B4226',op:0.5},blush:{c:'#E8A87A',op:0.3},brows:{c:'#5C3D1A',op:0.4},highlight:{c:'#FFD9A0',op:0.35}},
+  {id:'berry',name:'Berry',dots:['#7B3F6E','#D4789C','#5C2D4E'],lips:{c:'#7B3F6E',op:0.8},eyes:{c:'#5C4033',op:0.4},blush:{c:'#D4789C',op:0.25},brows:{c:'#3D2B1A',op:0.5},highlight:{c:'#F5E8FF',op:0.3}}
 ];
 
 let currentCat='lips',currentColor='#D4789C',currentOp=0.7;
-let makeup={lips:{c:'#D4789C',op:0.65},eyes:{c:'#5C4033',op:0.3},blush:{c:'#F4A0B0',op:0.25},brows:{c:'#5C3D1A',op:0.5},highlight:{c:'#FFE9B0',op:0.3}};
+let makeup={lips:{c:'#D4789C',op:0.55},eyes:{c:'#5C4033',op:0.25},blush:{c:'#F4A0B0',op:0.2},brows:{c:'#5C3D1A',op:0.35},highlight:{c:'#FFE9B0',op:0.25}};
 
 const video=document.getElementById('video');
 const canvas=document.getElementById('outputCanvas');
@@ -178,33 +178,25 @@ function updateOp(v){currentOp=v/100;document.getElementById('opVal').textConten
 async function startCamera(){
   try{
     const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:false});
-    video.srcObject=stream;
-    await video.play();
+    video.srcObject=stream;await video.play();
     document.getElementById('camOverlay').classList.add('hidden');
     document.getElementById('statusDot').classList.add('on');
     document.getElementById('statusText').textContent='Détection active';
     initFaceMesh();
-  }catch(e){
-    document.getElementById('statusText').textContent='Caméra non disponible';
-  }
+  }catch(e){document.getElementById('statusText').textContent='Caméra non disponible';}
 }
 
 function initFaceMesh(){
   const fm=new FaceMesh({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
   fm.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
   fm.onResults(onResults);
-  const cam=new Camera(video,{
-    onFrame:async()=>{try{await fm.send({image:video});}catch(e){}},
-    width:640,height:480
-  });
+  const cam=new Camera(video,{onFrame:async()=>{try{await fm.send({image:video});}catch(e){}},width:640,height:480});
   cam.start();
 }
 
 function onResults(results){
-  const W=video.videoWidth||640;
-  const H=video.videoHeight||480;
-  canvas.width=W;
-  canvas.height=H;
+  const W=video.videoWidth||640,H=video.videoHeight||480;
+  canvas.width=W;canvas.height=H;
   ctx.clearRect(0,0,W,H);
   if(results.multiFaceLandmarks&&results.multiFaceLandmarks.length>0){
     applyMakeupAR(results.multiFaceLandmarks[0],W,H);
@@ -223,28 +215,80 @@ function applyMakeupAR(lm,W,H){
 
 function applyLips(lm,W,H){
   const m=makeup.lips;if(!m||!m.c)return;
-  const rgb=hexToRgb(m.c);const op=m.op*0.85;
+  const rgb=hexToRgb(m.c);
+  const op=m.op*0.75;
+
   const oU=[61,185,40,39,37,0,267,269,270,409,291,308,415,310,311,312,13,82,81,80,191,78,61];
   const oL=[61,146,91,181,84,17,314,405,321,375,291,308,324,318,402,317,14,87,178,88,95,78,61];
+
+  // Créer un canvas temporaire pour appliquer le flou de bord
+  const tmp=document.createElement('canvas');
+  tmp.width=W;tmp.height=H;
+  const tc=tmp.getContext('2d');
+
+  // Lèvre supérieure
+  tc.beginPath();
+  oU.forEach((idx,i)=>{const p=pt(lm,idx,W,H);i===0?tc.moveTo(p.x,p.y):tc.lineTo(p.x,p.y)});
+  tc.closePath();
+  tc.fillStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${op})`;
+  tc.fill();
+
+  // Lèvre inférieure — légèrement plus claire pour effet relief
+  tc.beginPath();
+  oL.forEach((idx,i)=>{const p=pt(lm,idx,W,H);i===0?tc.moveTo(p.x,p.y):tc.lineTo(p.x,p.y)});
+  tc.closePath();
+  tc.fillStyle=`rgba(${Math.min(rgb.r+25,255)},${Math.min(rgb.g+10,255)},${Math.min(rgb.b+15,255)},${op})`;
+  tc.fill();
+
+  // Reflet brillant au centre de la lèvre supérieure
+  const lipCenter=pt(lm,13,W,H);
+  const lipL=pt(lm,61,W,H);
+  const lipR=pt(lm,291,W,H);
+  const lipWidth=Math.abs(lipR.x-lipL.x);
+  const shineGrad=tc.createRadialGradient(lipCenter.x,lipCenter.y-2,0,lipCenter.x,lipCenter.y-2,lipWidth*0.25);
+  shineGrad.addColorStop(0,'rgba(255,255,255,0.18)');
+  shineGrad.addColorStop(1,'rgba(255,255,255,0)');
+  tc.beginPath();
+  oU.forEach((idx,i)=>{const p=pt(lm,idx,W,H);i===0?tc.moveTo(p.x,p.y):tc.lineTo(p.x,p.y)});
+  tc.closePath();
+  tc.fillStyle=shineGrad;
+  tc.fill();
+
+  // Appliquer avec filtre de flou léger pour les bords
   ctx.save();
-  ctx.beginPath();oU.forEach((idx,i)=>{const p=pt(lm,idx,W,H);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});ctx.closePath();
-  ctx.fillStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${op})`;ctx.fill();
-  ctx.beginPath();oL.forEach((idx,i)=>{const p=pt(lm,idx,W,H);i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)});ctx.closePath();
-  ctx.fillStyle=`rgba(${Math.min(rgb.r+20,255)},${rgb.g},${Math.min(rgb.b+10,255)},${op})`;ctx.fill();
+  ctx.filter='blur(1.5px)';
+  ctx.drawImage(tmp,0,0);
+  ctx.filter='none';
   ctx.restore();
 }
 
 function applyEyes(lm,W,H){
   const m=makeup.eyes;if(!m||!m.c)return;
   const rgb=hexToRgb(m.c);
-  ctx.save();
-  [[pt(lm,468,W,H)],[pt(lm,473,W,H)]].forEach(([center])=>{
-    const grad=ctx.createRadialGradient(center.x,center.y-6,0,center.x,center.y-6,30);
-    grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.7})`);
-    grad.addColorStop(0.6,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.3})`);
-    grad.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.beginPath();ctx.ellipse(center.x,center.y-6,32,22,0,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();
+
+  const tmp=document.createElement('canvas');
+  tmp.width=W;tmp.height=H;
+  const tc=tmp.getContext('2d');
+
+  // Ombre à paupières — dégradé depuis la paupière vers le haut
+  [[pt(lm,468,W,H),pt(lm,159,W,H),pt(lm,145,W,H)],
+   [pt(lm,473,W,H),pt(lm,386,W,H),pt(lm,374,W,H)]].forEach(([iris,top,bot])=>{
+    const eyeH=Math.abs(top.y-bot.y)*2.5;
+    const grad=tc.createLinearGradient(iris.x,top.y-eyeH,iris.x,bot.y+4);
+    grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+    grad.addColorStop(0.3,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.55})`);
+    grad.addColorStop(0.7,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.3})`);
+    grad.addColorStop(1,`rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+    tc.beginPath();
+    tc.ellipse(iris.x,iris.y-eyeH*0.3,eyeH*1.8,eyeH*0.9,0,0,Math.PI*2);
+    tc.fillStyle=grad;
+    tc.fill();
   });
+
+  ctx.save();
+  ctx.filter='blur(3px)';
+  ctx.drawImage(tmp,0,0);
+  ctx.filter='none';
   ctx.restore();
 }
 
@@ -252,36 +296,94 @@ function applyBlush(lm,W,H){
   const m=makeup.blush;if(!m||!m.c)return;
   const rgb=hexToRgb(m.c);
   const nc=pt(lm,1,W,H);
-  [[pt(lm,117,W,H)],[pt(lm,346,W,H)]].forEach(([center])=>{
-    const size=Math.abs(center.x-nc.x)*0.7;
-    const grad=ctx.createRadialGradient(center.x,center.y,0,center.x,center.y,size);
-    grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.5})`);
-    grad.addColorStop(0.5,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.2})`);
+
+  // Deux points de blush par joue pour un effet plus naturel
+  [[pt(lm,117,W,H),pt(lm,123,W,H)],
+   [pt(lm,346,W,H),pt(lm,352,W,H)]].forEach(([c1,c2])=>{
+    const size=Math.abs(c1.x-nc.x)*0.85;
+    const cx=(c1.x+c2.x)/2;
+    const cy=(c1.y+c2.y)/2;
+    const grad=ctx.createRadialGradient(cx,cy,0,cx,cy,size);
+    grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.35})`);
+    grad.addColorStop(0.4,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.15})`);
     grad.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.save();ctx.beginPath();ctx.ellipse(center.x,center.y,size,size*0.65,0,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();ctx.restore();
+    ctx.save();
+    ctx.filter='blur(6px)';
+    ctx.beginPath();
+    ctx.ellipse(cx,cy,size,size*0.7,0,0,Math.PI*2);
+    ctx.fillStyle=grad;
+    ctx.fill();
+    ctx.filter='none';
+    ctx.restore();
   });
 }
 
 function applyBrows(lm,W,H){
   const m=makeup.brows;if(!m||!m.c)return;
   const rgb=hexToRgb(m.c);
-  [[70,63,105,66,107,55,65,52,53,46],[300,293,334,296,336,285,295,282,283,276]].forEach(indices=>{
+
+  // Indices sourcils — on utilise uniquement les points centraux pour une ligne fine
+  const browL=[70,63,105,66,107,55,65,52,53,46];
+  const browR=[300,293,334,296,336,285,295,282,283,276];
+
+  [browL,browR].forEach(indices=>{
     const pts=indices.map(i=>pt(lm,i,W,H));
-    ctx.save();ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);pts.slice(1).forEach(p=>ctx.lineTo(p.x,p.y));
-    ctx.strokeStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.9})`;
-    ctx.lineWidth=4;ctx.lineCap='round';ctx.lineJoin='round';ctx.stroke();ctx.restore();
+
+    const tmp=document.createElement('canvas');
+    tmp.width=W;tmp.height=H;
+    const tc=tmp.getContext('2d');
+
+    // Ligne principale fine
+    tc.beginPath();
+    tc.moveTo(pts[0].x,pts[0].y);
+    pts.slice(1).forEach(p=>tc.lineTo(p.x,p.y));
+    tc.strokeStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.7})`;
+    tc.lineWidth=2;
+    tc.lineCap='round';
+    tc.lineJoin='round';
+    tc.stroke();
+
+    // Remplissage léger pour épaisseur naturelle
+    tc.beginPath();
+    tc.moveTo(pts[0].x,pts[0].y);
+    pts.forEach(p=>tc.lineTo(p.x,p.y));
+    tc.strokeStyle=`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.35})`;
+    tc.lineWidth=5;
+    tc.lineCap='round';
+    tc.lineJoin='round';
+    tc.stroke();
+
+    ctx.save();
+    ctx.filter='blur(1px)';
+    ctx.drawImage(tmp,0,0);
+    ctx.filter='none';
+    ctx.restore();
   });
 }
 
 function applyHighlight(lm,W,H){
   const m=makeup.highlight;if(!m||!m.c||m.op<0.05)return;
   const rgb=hexToRgb(m.c);
-  [pt(lm,116,W,H),pt(lm,345,W,H),pt(lm,6,W,H)].forEach(center=>{
-    const grad=ctx.createRadialGradient(center.x,center.y,0,center.x,center.y,25);
-    grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.5})`);
+
+  // Points hauts du visage : pommettes, arête du nez, arc de Cupidon
+  [
+    {pt:pt(lm,116,W,H),rx:18,ry:12},
+    {pt:pt(lm,345,W,H),rx:18,ry:12},
+    {pt:pt(lm,6,W,H),rx:8,ry:22},
+  ].forEach(({pt:center,rx,ry})=>{
+    const grad=ctx.createRadialGradient(center.x,center.y,0,center.x,center.y,Math.max(rx,ry));
+    grad.addColorStop(0,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.45})`);
+    grad.addColorStop(0.5,`rgba(${rgb.r},${rgb.g},${rgb.b},${m.op*0.15})`);
     grad.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.save();ctx.globalCompositeOperation='screen';
-    ctx.beginPath();ctx.ellipse(center.x,center.y,25,18,0,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();ctx.restore();
+    ctx.save();
+    ctx.globalCompositeOperation='screen';
+    ctx.filter='blur(2px)';
+    ctx.beginPath();
+    ctx.ellipse(center.x,center.y,rx,ry,0,0,Math.PI*2);
+    ctx.fillStyle=grad;
+    ctx.fill();
+    ctx.filter='none';
+    ctx.restore();
   });
 }
 
