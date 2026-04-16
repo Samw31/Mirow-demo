@@ -212,6 +212,8 @@ function initFaceMesh(){
     ctx.clearRect(0,0,W,H);
     if(results.multiFaceLandmarks&&results.multiFaceLandmarks.length>0){
       applyMakeupAR(results.multiFaceLandmarks[0],W,H);
+      window._lm = results.multiFaceLandmarks[0];
+console.log("frame reçue, visage:", results.multiFaceLandmarks.length, "lèvre centre x:", results.multiFaceLandmarks[0][13].x.toFixed(3), "y:", results.multiFaceLandmarks[0][13].y.toFixed(3));
     }
   });
 
