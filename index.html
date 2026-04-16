@@ -194,9 +194,11 @@ async function startCamera(){
 }
 
 function initFaceMesh(){
-  // Affichage vidéo direct en boucle
+  let faceMeshActive=false;
+
+  // Boucle fallback — ne dessine que si MediaPipe n'est pas actif
   function drawLoop(){
-    if(video.readyState>=2){
+    if(!faceMeshActive && video.readyState>=2){
       canvas.width=video.videoWidth||640;
       canvas.height=video.videoHeight||480;
       ctx.save();
@@ -209,18 +211,26 @@ function initFaceMesh(){
   }
   drawLoop();
 
-  // MediaPipe en parallèle pour le maquillage
   try{
     const fm=new FaceMesh({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
     fm.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
     fm.onResults((results)=>{
+      faceMeshActive=true;
+      canvas.width=video.videoWidth||640;
+      canvas.height=video.videoHeight||480;
+      ctx.save();
+      ctx.translate(canvas.width,0);
+      ctx.scale(-1,1);
+      ctx.drawImage(video,0,0,canvas.width,canvas.height);
+      ctx.restore();
       if(results.multiFaceLandmarks&&results.multiFaceLandmarks.length>0){
-        ctx.save();
         applyMakeupAR(results.multiFaceLandmarks[0]);
-        ctx.restore();
       }
     });
-    const cam=new Camera(video,{onFrame:async()=>{try{await fm.send({image:video});}catch(e){}},width:640,height:480});
+    const cam=new Camera(video,{
+      onFrame:async()=>{try{await fm.send({image:video});}catch(e){}},
+      width:640,height:480
+    });
     cam.start();
   }catch(e){}
 }
