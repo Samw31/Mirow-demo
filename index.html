@@ -9,11 +9,11 @@
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300&family=Jost:wght@300;400;500&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Jost',sans-serif;background:#0d0d0d;color:#f0ece6;overflow-x:hidden;min-height:100vh}
-:root{--rose:#d4789c;--rose-d:#9b3d6a;--cream:#f0ece6;--panel:#161616;--border:rgba(240,236,230,0.08)}
+:root{--rose:#A855F7;--rose-d:#7C3AED;--cream:#f0ece6;--panel:#161616;--border:rgba(240,236,230,0.08)}
 .app{display:flex;flex-direction:column;min-height:100vh}
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-bottom:0.5px solid var(--border);background:#0d0d0d}
 .logo{font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:0.15em;color:var(--cream)}
-.logo span{color:#7F77DD;font-style:italic}
+.logo span{color:#A855F7;font-style:italic}
 .status-wrap{display:flex;align-items:center;gap:8px}
 .status-dot{width:7px;height:7px;border-radius:50%;background:#555;transition:background 0.3s}
 .status-dot.on{background:#4CAF50;box-shadow:0 0 6px rgba(76,175,80,0.5)}
@@ -24,18 +24,18 @@ body{font-family:'Jost',sans-serif;background:#0d0d0d;color:#f0ece6;overflow-x:h
 #outputCanvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
 .cam-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;z-index:10}
 .cam-overlay.hidden{display:none}
-.cam-frame{width:160px;height:200px;border:1px solid rgba(212,120,156,0.3);border-radius:80px 80px 50px 50px;animation:pulse 2s ease-in-out infinite}
-@keyframes pulse{0%,100%{border-color:rgba(212,120,156,0.25)}50%{border-color:rgba(212,120,156,0.6)}}
+.cam-frame{width:160px;height:200px;border:1px solid rgba(168,85,247,0.3);border-radius:80px 80px 50px 50px;animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{border-color:rgba(168,85,247,0.25)}50%{border-color:rgba(168,85,247,0.6)}}
 .cam-hint{font-size:11px;color:rgba(240,236,230,0.45);letter-spacing:0.1em;text-transform:uppercase;text-align:center;padding:0 1rem}
-.start-btn{background:transparent;border:0.5px solid rgba(212,120,156,0.45);color:var(--rose);padding:11px 32px;border-radius:30px;font-family:'Jost',sans-serif;font-size:12px;font-weight:400;letter-spacing:0.12em;cursor:pointer;text-transform:uppercase;transition:all 0.2s}
-.start-btn:hover{background:rgba(212,120,156,0.1);border-color:var(--rose)}
+.start-btn{background:transparent;border:0.5px solid rgba(168,85,247,0.45);color:var(--rose);padding:11px 32px;border-radius:30px;font-family:'Jost',sans-serif;font-size:12px;font-weight:400;letter-spacing:0.12em;cursor:pointer;text-transform:uppercase;transition:all 0.2s}
+.start-btn:hover{background:rgba(168,85,247,0.1);border-color:var(--rose)}
 .panel{width:290px;background:var(--panel);border-left:0.5px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;max-height:calc(100vh - 52px)}
 .panel-section{padding:16px;border-bottom:0.5px solid var(--border)}
 .section-label{font-size:9px;font-weight:500;letter-spacing:0.18em;text-transform:uppercase;color:rgba(240,236,230,0.3);margin-bottom:12px}
 .cat-row{display:flex;gap:5px;flex-wrap:wrap}
 .cat-btn{font-family:'Jost',sans-serif;font-size:10px;font-weight:400;letter-spacing:0.06em;text-transform:uppercase;padding:5px 11px;border-radius:20px;border:0.5px solid var(--border);background:transparent;color:rgba(240,236,230,0.45);cursor:pointer;transition:all 0.15s}
-.cat-btn:hover{border-color:rgba(212,120,156,0.4);color:var(--rose)}
-.cat-btn.active{border-color:var(--rose);background:rgba(212,120,156,0.1);color:var(--rose)}
+.cat-btn:hover{border-color:rgba(168,85,247,0.4);color:var(--rose)}
+.cat-btn.active{border-color:var(--rose);background:rgba(168,85,247,0.1);color:var(--rose)}
 .swatch-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:12px}
 .swatch{width:100%;aspect-ratio:1;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:all 0.15s}
 .swatch:hover{transform:scale(1.12)}
@@ -48,8 +48,8 @@ input[type=range]{width:100%;height:2px;-webkit-appearance:none;background:rgba(
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--rose);cursor:pointer;border:2px solid #0d0d0d}
 .look-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
 .look-card{padding:9px 7px;border:0.5px solid var(--border);border-radius:8px;background:transparent;cursor:pointer;font-family:'Jost',sans-serif;text-align:center;transition:all 0.15s}
-.look-card:hover{border-color:rgba(212,120,156,0.3)}
-.look-card.active{border-color:var(--rose);background:rgba(212,120,156,0.08)}
+.look-card:hover{border-color:rgba(168,85,247,0.3)}
+.look-card.active{border-color:var(--rose);background:rgba(168,85,247,0.08)}
 .look-dots{display:flex;gap:3px;justify-content:center;margin-bottom:5px}
 .look-dots span{width:8px;height:8px;border-radius:50%;display:block}
 .look-name{font-size:10px;color:rgba(240,236,230,0.55);letter-spacing:0.05em;text-transform:uppercase}
@@ -69,7 +69,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 .toggle.on::after{left:15.5px}
 .footer-bar{padding:10px 16px;border-top:0.5px solid var(--border);text-align:center;margin-top:auto}
 .footer-txt{font-size:9px;color:rgba(240,236,230,0.2);letter-spacing:0.08em}
-.footer-txt span{color:#7F77DD}
+.footer-txt span{color:#A855F7}
 @media(max-width:640px){.main{flex-direction:column}.panel{width:100%;max-height:none;border-left:none;border-top:0.5px solid var(--border)}.cam-area{min-height:300px}}
 </style>
 </head>
@@ -141,23 +141,23 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;heigh
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
 <script>
 const PALETTES={
-  lips:[{c:'#D4789C',n:'Rose Poudré',p:'Rouge Velours',b:"L'Oréal",pr:'14,90 €'},{c:'#E8735A',n:'Corail Vif',p:'Corail Passion',b:'NYX',pr:'9,90 €'},{c:'#9B3D6A',n:'Framboise',p:'Matte Framboise',b:'Maybelline',pr:'11,50 €'},{c:'#7B3F6E',n:'Prune',p:'Plum Intense',b:'MAC',pr:'24,00 €'},{c:'#5C2D4E',n:'Berry',p:'Berry Midnight',b:'Urban Decay',pr:'21,00 €'},{c:'#C49A7A',n:'Nude Sable',p:'Nude Sable',b:'Charlotte Tilbury',pr:'29,00 €'},{c:'#F0A98A',n:'Pêche',p:'Peachy Keen',b:'NARS',pr:'27,00 €'},{c:'#B07070',n:'Terracotta',p:'Terracotta Matte',b:'Fenty Beauty',pr:'22,00 €'},{c:'#8B2252',n:'Cerise',p:'Cherry Bomb',b:'Bobbi Brown',pr:'31,00 €'},{c:'#D04060',n:'Rouge',p:'Russian Red',b:'MAC',pr:'24,00 €'},{c:'#602040',n:'Bordeaux',p:'Dark Side',b:'Chanel',pr:'42,00 €'},{c:'#E8C4A0',n:'Café lait',p:'Café au Lait',b:'Huda Beauty',pr:'18,00 €'}],
+  lips:[{c:'#A855F7',n:'Rose Poudré',p:'Rouge Velours',b:"L'Oréal",pr:'14,90 €'},{c:'#E8735A',n:'Corail Vif',p:'Corail Passion',b:'NYX',pr:'9,90 €'},{c:'#7C3AED',n:'Framboise',p:'Matte Framboise',b:'Maybelline',pr:'11,50 €'},{c:'#7B3F6E',n:'Prune',p:'Plum Intense',b:'MAC',pr:'24,00 €'},{c:'#5C2D4E',n:'Berry',p:'Berry Midnight',b:'Urban Decay',pr:'21,00 €'},{c:'#C49A7A',n:'Nude Sable',p:'Nude Sable',b:'Charlotte Tilbury',pr:'29,00 €'},{c:'#F0A98A',n:'Pêche',p:'Peachy Keen',b:'NARS',pr:'27,00 €'},{c:'#B07070',n:'Terracotta',p:'Terracotta Matte',b:'Fenty Beauty',pr:'22,00 €'},{c:'#8B2252',n:'Cerise',p:'Cherry Bomb',b:'Bobbi Brown',pr:'31,00 €'},{c:'#D04060',n:'Rouge',p:'Russian Red',b:'MAC',pr:'24,00 €'},{c:'#602040',n:'Bordeaux',p:'Dark Side',b:'Chanel',pr:'42,00 €'},{c:'#E8C4A0',n:'Café lait',p:'Café au Lait',b:'Huda Beauty',pr:'18,00 €'}],
   eyes:[{c:'#4A2F1A',n:'Brun Profond',p:'Palette Smoky',b:'Urban Decay',pr:'39,00 €'},{c:'#1A1A2E',n:'Navy Noir',p:'Navy Night',b:'Benefit',pr:'28,00 €'},{c:'#7B5EA7',n:'Violet Fumé',p:'Violet Smoke',b:'Charlotte Tilbury',pr:'56,00 €'},{c:'#1A4A6E',n:'Bleu Marine',p:'Blue Steel',b:'Armani',pr:'48,00 €'},{c:'#6B4226',n:'Bronze',p:'Sunset Bronze',b:'Too Faced',pr:'35,00 €'},{c:'#1A1A1A',n:'Noir Intense',p:'Noir Intense',b:'Lancôme',pr:'33,00 €'},{c:'#8B6914',n:'Or Antique',p:'Gold Digger',b:'Jeffree Star',pr:'19,00 €'},{c:'#5C4033',n:'Taupe',p:'Taupe Mauve',b:'Anastasia BH',pr:'45,00 €'},{c:'#704060',n:'Prune Yeux',p:'Plum Smoky',b:'Dior',pr:'55,00 €'},{c:'#4A6741',n:'Kaki',p:'Kaki Fusion',b:'Nyx',pr:'15,00 €'}],
-  blush:[{c:'#F4A0B0',n:'Bébé Rose',p:'Blush Bébé',b:'NARS',pr:'34,00 €'},{c:'#E87A7A',n:'Pêche Vive',p:'Orgasm',b:'NARS',pr:'34,00 €'},{c:'#D4789C',n:'Rose Frais',p:'Joues Contraste',b:'Chanel',pr:'47,00 €'},{c:'#F0B07A',n:'Pêche Abricot',p:'Peach Pop',b:'Clinique',pr:'28,00 €'},{c:'#E8A87A',n:'Corail',p:'Coralista',b:'Benefit',pr:'32,00 €'},{c:'#D4909A',n:'Mauve Rosé',p:'Mauve Haze',b:'Rare Beauty',pr:'26,00 €'}],
+  blush:[{c:'#F4A0B0',n:'Bébé Rose',p:'Blush Bébé',b:'NARS',pr:'34,00 €'},{c:'#E87A7A',n:'Pêche Vive',p:'Orgasm',b:'NARS',pr:'34,00 €'},{c:'#A855F7',n:'Rose Frais',p:'Joues Contraste',b:'Chanel',pr:'47,00 €'},{c:'#F0B07A',n:'Pêche Abricot',p:'Peach Pop',b:'Clinique',pr:'28,00 €'},{c:'#E8A87A',n:'Corail',p:'Coralista',b:'Benefit',pr:'32,00 €'},{c:'#D4909A',n:'Mauve Rosé',p:'Mauve Haze',b:'Rare Beauty',pr:'26,00 €'}],
   brows:[{c:'#3D2B1A',n:'Brun Foncé',p:'Brow Wiz',b:'Anastasia BH',pr:'23,00 €'},{c:'#5C3D1A',n:'Brun Moyen',p:'Boy Brow',b:'Glossier',pr:'18,00 €'},{c:'#8B6914',n:'Châtain',p:'Brow Pencil',b:'NYX',pr:'12,00 €'},{c:'#2C1810',n:'Noir',p:'Micro Brow',b:'e.l.f.',pr:'10,00 €'},{c:'#C49A7A',n:'Blond',p:'Brow Pomade',b:'MAC',pr:'22,00 €'},{c:'#6B4226',n:'Auburn',p:'Brow Definer',b:'Benefit',pr:'25,00 €'}],
   highlight:[{c:'#FFE9B0',n:'Or Champagne',p:'Sun Lit',b:'NARS',pr:'38,00 €'},{c:'#FFF0C0',n:'Doré Nacré',p:'Mary-Lou',b:'TheBalm',pr:'28,00 €'},{c:'#FFD9A0',n:'Bronze Soleil',p:'Killawatt',b:'Fenty Beauty',pr:'36,00 €'},{c:'#F5E8FF',n:'Parme Irisé',p:'Becca Pearl',b:'BECCA',pr:'42,00 €'},{c:'#E0F5FF',n:'Perle Bleue',p:'Blue Light',b:'Charlotte Tilbury',pr:'44,00 €'},{c:'#FFEEDD',n:'Ivoire Satin',p:'Soft Focus',b:'Laura Mercier',pr:'32,00 €'}]
 };
 const LOOKS=[
-  {id:'natural',name:'Naturel',dots:['#E8A87A','#D4789C','#C49A7A'],lips:{c:'#D4789C',op:0.55},eyes:{c:'#5C4033',op:0.25},blush:{c:'#F4A0B0',op:0.2},brows:{c:'#5C3D1A',op:0.35},highlight:{c:'#FFE9B0',op:0.25}},
-  {id:'glam',name:'Glam',dots:['#7B3F6E','#E8735A','#C9924A'],lips:{c:'#9B3D6A',op:0.8},eyes:{c:'#7B3F6E',op:0.6},blush:{c:'#E87A7A',op:0.35},brows:{c:'#3D2B1A',op:0.5},highlight:{c:'#FFD9A0',op:0.4}},
+  {id:'natural',name:'Naturel',dots:['#E8A87A','#A855F7','#C49A7A'],lips:{c:'#A855F7',op:0.55},eyes:{c:'#5C4033',op:0.25},blush:{c:'#F4A0B0',op:0.2},brows:{c:'#5C3D1A',op:0.35},highlight:{c:'#FFE9B0',op:0.25}},
+  {id:'glam',name:'Glam',dots:['#7B3F6E','#E8735A','#C9924A'],lips:{c:'#7C3AED',op:0.8},eyes:{c:'#7B3F6E',op:0.6},blush:{c:'#E87A7A',op:0.35},brows:{c:'#3D2B1A',op:0.5},highlight:{c:'#FFD9A0',op:0.4}},
   {id:'nude',name:'Nude',dots:['#C49A7A','#DDB89A','#E8D0C0'],lips:{c:'#DDB89A',op:0.6},eyes:{c:'#8B6914',op:0.2},blush:{c:'#F0C0B0',op:0.15},brows:{c:'#5C3D1A',op:0.3},highlight:{c:'#FFF0C0',op:0.3}},
-  {id:'bold',name:'Bold',dots:['#5C2D4E','#9B3D6A','#1A1A1A'],lips:{c:'#5C2D4E',op:0.9},eyes:{c:'#1A1A1A',op:0.7},blush:{c:'#C47898',op:0.3},brows:{c:'#2C1810',op:0.6},highlight:{c:'rgba(0,0,0,0)',op:0}},
+  {id:'bold',name:'Bold',dots:['#5C2D4E','#7C3AED','#1A1A1A'],lips:{c:'#5C2D4E',op:0.9},eyes:{c:'#1A1A1A',op:0.7},blush:{c:'#C47898',op:0.3},brows:{c:'#2C1810',op:0.6},highlight:{c:'rgba(0,0,0,0)',op:0}},
   {id:'sunset',name:'Sunset',dots:['#E8735A','#F0A98A','#8B6914'],lips:{c:'#E8735A',op:0.75},eyes:{c:'#6B4226',op:0.5},blush:{c:'#E8A87A',op:0.3},brows:{c:'#5C3D1A',op:0.4},highlight:{c:'#FFD9A0',op:0.35}},
-  {id:'berry',name:'Berry',dots:['#7B3F6E','#D4789C','#5C2D4E'],lips:{c:'#7B3F6E',op:0.8},eyes:{c:'#5C4033',op:0.4},blush:{c:'#D4789C',op:0.25},brows:{c:'#3D2B1A',op:0.5},highlight:{c:'#F5E8FF',op:0.3}}
+  {id:'berry',name:'Berry',dots:['#7B3F6E','#A855F7','#5C2D4E'],lips:{c:'#7B3F6E',op:0.8},eyes:{c:'#5C4033',op:0.4},blush:{c:'#A855F7',op:0.25},brows:{c:'#3D2B1A',op:0.5},highlight:{c:'#F5E8FF',op:0.3}}
 ];
 
-let currentCat='lips',currentColor='#D4789C',currentOp=0.7;
-let makeup={lips:{c:'#D4789C',op:0.55},eyes:{c:'#5C4033',op:0.25},blush:{c:'#F4A0B0',op:0.2},brows:{c:'#5C3D1A',op:0.35},highlight:{c:'#FFE9B0',op:0.25}};
+let currentCat='lips',currentColor='#A855F7',currentOp=0.7;
+let makeup={lips:{c:'#A855F7',op:0.55},eyes:{c:'#5C4033',op:0.25},blush:{c:'#F4A0B0',op:0.2},brows:{c:'#5C3D1A',op:0.35},highlight:{c:'#FFE9B0',op:0.25}};
 
 const video=document.getElementById('video');
 const canvas=document.getElementById('outputCanvas');
