@@ -1310,7 +1310,7 @@ async function startCamera() {
     await video.play();
     camOverlay.classList.add('hidden');
     statusDot.classList.add('on');
-    statusText.textContent = '3D Lèvres · Tasks API';
+    statusText.textContent = 'Hybride 2D+3D · Tasks API';
     initFaceMesh();
   } catch (e) {
     showCameraError(e);
@@ -1515,13 +1515,14 @@ function applyMakeupAR(lm, W, H) {
 
   applyBrows(lm, W, H);
 
-  // Lèvres : rendu WebGL si dispo, fallback Canvas 2D sinon
+  // Lèvres : mode HYBRIDE
+  // - Canvas 2D fait la couleur de base (toujours actif)
+  // - WebGL ajoute par-dessus une couche de reflets dynamiques 3D
   // Skip si bouche ouverte (évite couleur sur les dents)
   if (!isMouthOpen()) {
+    applyLips(lm, W, H);              // Canvas 2D : couleur + finish
     if (webglEnabled) {
-      updateWebGLLips(lm, W, H);
-    } else {
-      applyLips(lm, W, H);
+      updateWebGLLips(lm, W, H);      // WebGL : reflets 3D (par-dessus)
     }
   } else {
     if (webglEnabled) hideWebGLLips();
@@ -1724,50 +1725,43 @@ function getToneAdjustments(category) {
 document.getElementById('toneRescan').addEventListener('click', rescanTone);
 
 // ============================================================
-// WEBGL LIPS RENDERER — three.js + MediaPipe landmarks
+// WEBGL LIPS HIGHLIGHTS — couche de reflets dynamiques 3D
 // ============================================================
-// On rend les lèvres en 3D via three.js avec un MeshPhysicalMaterial
-// (matériau physique réaliste). Cela permet :
-//  - reflets dynamiques selon orientation de la tête
-//  - clearcoat (vernis) pour glossy
-//  - metalness pour effet metallic
-//  - roughness pour matte
+// APPROCHE HYBRIDE :
+//  - Canvas 2D continue de gérer la couleur des lèvres (qui marche)
+//  - WebGL ajoute par-dessus 2-4 spots lumineux qui RÉAGISSENT à
+//    l'orientation 3D du visage (matrice fournie par Tasks API)
+//  - Activé uniquement pour glossy et metallic (matte = pas de reflet)
+//
+// On utilise des sprites simples (pas de mesh complexe) pour zéro risque
+// de bug de triangulation.
 // ============================================================
 
-// Indices MediaPipe formant le contour des lèvres (extérieur)
-// Source: https://github.com/google/mediapipe/blob/master/mediapipe/python/solutions/face_mesh_connections.py
-const LIPS_OUTER = [
-  61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291,
-  375, 321, 405, 314, 17, 84, 181, 91, 146, 61
-];
+// Points anatomiques où les reflets apparaissent naturellement sur des lèvres
+// (mêmes points que ceux qu'on utilisait en Canvas 2D pour les arcs de Cupidon)
+const LIPS_HIGHLIGHT_POINTS = {
+  centerLower: 17,    // milieu lèvre inférieure (reflet principal)
+  cupidLeft:   39,    // mont gauche de l'arc de Cupidon
+  cupidRight:  269,   // mont droit de l'arc de Cupidon
+  cornerLeft:  61,    // coin gauche
+  cornerRight: 291,   // coin droit
+};
 
-// Indices du contour intérieur des lèvres (ouverture de bouche)
-const LIPS_INNER = [
-  78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308,
-  324, 318, 402, 317, 14, 87, 178, 88, 95, 78
-];
-
-// Triangulation Mediapipe pour les lèvres (faces du mesh)
-// Chaque triangle est défini par 3 indices vers le tableau combiné [outer, inner]
-// On va construire dynamiquement un mesh qui relie outer à inner
-let webglLipsMesh = null;
 let webglScene = null;
 let webglCamera = null;
 let webglRenderer = null;
-let webglAmbientLight = null;
-let webglDirLight = null;
+let webglHighlightSprites = []; // tableau de sprites de reflets
 let webglEnabled = false;
 
 function initWebGLLips() {
   if (!window.THREE) {
-    console.warn('[Mirow] three.js non chargé, fallback Canvas 2D pour lèvres');
+    console.warn('[Mirow] three.js non chargé, pas de reflets 3D');
     return false;
   }
 
   const T = window.THREE;
   const canvas = document.getElementById('webglCanvas');
 
-  // Renderer WebGL — alpha pour transparence par-dessus la vidéo
   webglRenderer = new T.WebGLRenderer({
     canvas: canvas,
     alpha: true,
@@ -1775,84 +1769,57 @@ function initWebGLLips() {
     premultipliedAlpha: false,
   });
   webglRenderer.setPixelRatio(window.devicePixelRatio);
-  webglRenderer.setClearColor(0x000000, 0); // transparent
+  webglRenderer.setClearColor(0x000000, 0);
 
-  // Scène
   webglScene = new T.Scene();
-
-  // Caméra orthographique alignée sur l'espace écran
-  // (on utilise les coords pixel directement, pas de perspective)
   webglCamera = new T.OrthographicCamera(0, 1, 0, 1, -1000, 1000);
 
-  // Éclairage : ambient pour base + directionnelle pour reflets
-  webglAmbientLight = new T.AmbientLight(0xffffff, 0.6);
-  webglScene.add(webglAmbientLight);
+  // Création d'une texture de spot lumineux (radial gradient blanc)
+  // Cette texture sera réutilisée par tous les sprites
+  const spotCanvas = document.createElement('canvas');
+  spotCanvas.width = 128;
+  spotCanvas.height = 128;
+  const spotCtx = spotCanvas.getContext('2d');
+  const grad = spotCtx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0,    'rgba(255, 255, 255, 1)');
+  grad.addColorStop(0.3,  'rgba(255, 255, 255, 0.6)');
+  grad.addColorStop(0.6,  'rgba(255, 255, 255, 0.2)');
+  grad.addColorStop(1,    'rgba(255, 255, 255, 0)');
+  spotCtx.fillStyle = grad;
+  spotCtx.fillRect(0, 0, 128, 128);
+  const spotTexture = new T.CanvasTexture(spotCanvas);
 
-  webglDirLight = new T.DirectionalLight(0xffffff, 1.2);
-  webglDirLight.position.set(0, -100, 100); // lumière depuis le haut-avant
-  webglScene.add(webglDirLight);
-
-  // Lumière de remplissage (rebond) pour adoucir
-  const fillLight = new T.DirectionalLight(0xfff5e8, 0.4);
-  fillLight.position.set(-50, 50, 80);
-  webglScene.add(fillLight);
-
-  // Géométrie initiale (sera remplie dynamiquement à chaque frame)
-  // On crée 21 vertices outer + 21 vertices inner = 42 vertices
-  // Triangulation : on crée des bandes entre outer et inner
-  const positions = new Float32Array(42 * 3);
-  const indices = [];
-
-  // Construction de la triangulation outer ↔ inner
-  // Pour chaque paire de points consécutifs sur outer + inner, on crée 2 triangles
-  // (technique de "ring strip")
-  const N = 21;
-  for (let i = 0; i < N - 1; i++) {
-    const o1 = i;          // outer current
-    const o2 = i + 1;      // outer next
-    const i1 = i + N;      // inner current
-    const i2 = i + 1 + N;  // inner next
-
-    // Triangle 1 : outer1, outer2, inner1
-    indices.push(o1, o2, i1);
-    // Triangle 2 : outer2, inner2, inner1
-    indices.push(o2, i2, i1);
+  // Création de 5 sprites de reflets (1 par point d'intérêt)
+  for (let i = 0; i < 5; i++) {
+    const spriteMaterial = new T.SpriteMaterial({
+      map: spotTexture,
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const sprite = new T.Sprite(spriteMaterial);
+    sprite.scale.set(20, 12, 1);
+    sprite.visible = false;
+    webglScene.add(sprite);
+    webglHighlightSprites.push(sprite);
   }
 
-  const geometry = new T.BufferGeometry();
-  geometry.setAttribute('position', new T.BufferAttribute(positions, 3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-
-  // Matériau initial — sera remplacé dynamiquement selon style + couleur
-  const material = new T.MeshPhysicalMaterial({
-    color: 0xA855F7,
-    roughness: 0.3,
-    metalness: 0.0,
-    clearcoat: 0.5,
-    clearcoatRoughness: 0.1,
-    transparent: true,
-    opacity: 0.85,
-    side: T.DoubleSide,
-  });
-
-  webglLipsMesh = new T.Mesh(geometry, material);
-  webglScene.add(webglLipsMesh);
-
   webglEnabled = true;
-  console.log('[Mirow] WebGL lips renderer initialized (three.js)');
+  console.log('[Mirow] WebGL highlights initialized (hybrid mode)');
   return true;
 }
 
 /**
- * Met à jour le mesh des lèvres avec les landmarks actuels
- * et applique le matériau correspondant au style + couleur choisis.
+ * Met à jour les reflets dynamiques selon orientation tête + style + couleur.
+ * Le Canvas 2D continue de gérer la couleur des lèvres en parallèle.
  */
 function updateWebGLLips(lm, W, H) {
-  if (!webglEnabled || !webglLipsMesh) return;
+  if (!webglEnabled || webglHighlightSprites.length === 0) return;
   const T = window.THREE;
 
-  // Mise à jour de la taille du canvas + caméra ortho si la vidéo a changé
+  // Resize si besoin
   if (webglRenderer.domElement.width !== W || webglRenderer.domElement.height !== H) {
     webglRenderer.setSize(W, H, false);
     webglCamera.left = 0;
@@ -1862,90 +1829,105 @@ function updateWebGLLips(lm, W, H) {
     webglCamera.updateProjectionMatrix();
   }
 
-  // Mise à jour des positions des vertices à partir des landmarks
-  const positions = webglLipsMesh.geometry.attributes.position.array;
-
-  // Outer ring
-  for (let i = 0; i < LIPS_OUTER.length - 1; i++) {
-    const p = lm[LIPS_OUTER[i]];
-    positions[i * 3]     = p.x * W;
-    positions[i * 3 + 1] = p.y * H;
-    positions[i * 3 + 2] = (p.z || 0) * W * 0.5; // z scaled
-  }
-
-  // Inner ring
-  const offset = 21 * 3;
-  for (let i = 0; i < LIPS_INNER.length - 1; i++) {
-    const p = lm[LIPS_INNER[i]];
-    positions[offset + i * 3]     = p.x * W;
-    positions[offset + i * 3 + 1] = p.y * H;
-    positions[offset + i * 3 + 2] = (p.z || 0) * W * 0.5;
-  }
-
-  webglLipsMesh.geometry.attributes.position.needsUpdate = true;
-  webglLipsMesh.geometry.computeVertexNormals();
-
-  // Mise à jour du matériau selon style + couleur + tone matching
   const m = makeup.lips;
-  if (!m || !m.c) {
-    webglLipsMesh.visible = false;
+  const style = currentLipStyle || 'glossy';
+
+  // Pas de reflets en matte ou si pas de couleur sélectionnée
+  if (!m || !m.c || style === 'matte') {
+    webglHighlightSprites.forEach(s => s.visible = false);
     webglRenderer.render(webglScene, webglCamera);
     return;
   }
-  webglLipsMesh.visible = true;
 
-  const rgb = hexToRgb(m.c);
-  const toneAdj = getToneAdjustments('lips');
-  const style = currentLipStyle || 'glossy';
-
-  const mat = webglLipsMesh.material;
-  mat.color.setRGB(rgb.r / 255, rgb.g / 255, rgb.b / 255);
-
-  // Configuration matériau selon finish
-  switch (style) {
-    case 'matte':
-      mat.roughness = 0.95;
-      mat.metalness = 0.0;
-      mat.clearcoat = 0.0;
-      mat.clearcoatRoughness = 1.0;
-      mat.opacity = m.op * 0.85 * toneAdj.opMultiplier;
-      break;
-
-    case 'glossy':
-      mat.roughness = 0.25;
-      mat.metalness = 0.0;
-      mat.clearcoat = 0.85;            // vernis brillant
-      mat.clearcoatRoughness = 0.05;
-      mat.opacity = m.op * 0.75 * toneAdj.opMultiplier;
-      break;
-
-    case 'metallic':
-      mat.roughness = 0.15;
-      mat.metalness = 0.7;             // effet métallique fort
-      mat.clearcoat = 1.0;
-      mat.clearcoatRoughness = 0.02;
-      mat.opacity = Math.min(0.95, m.op * 0.85 * toneAdj.opMultiplier);
-      // Boost saturation via emissive léger
-      mat.emissive.setRGB(rgb.r / 255 * 0.05, rgb.g / 255 * 0.05, rgb.b / 255 * 0.05);
-      break;
+  // Calcul de l'angle d'orientation de la tête depuis la matrice 4×4
+  // Si on a la matrice, on l'utilise. Sinon fallback sur les landmarks.
+  let headRotationX = 0; // pitch (haut/bas)
+  let headRotationY = 0; // yaw (gauche/droite)
+  if (latestTransformMatrix && latestTransformMatrix.length >= 11) {
+    // Extraction des angles d'Euler depuis la matrice 4×4
+    // (matrice column-major : [m11,m21,m31,m41, m12,m22,m32,m42, ...])
+    const m11 = latestTransformMatrix[0];
+    const m21 = latestTransformMatrix[1];
+    const m31 = latestTransformMatrix[2];
+    const m32 = latestTransformMatrix[6];
+    const m33 = latestTransformMatrix[10];
+    headRotationY = Math.atan2(-m31, Math.sqrt(m32 * m32 + m33 * m33));
+    headRotationX = Math.atan2(m32, m33);
   }
 
-  // Reset emissive si on est pas en metallic
-  if (style !== 'metallic') {
-    mat.emissive.setRGB(0, 0, 0);
-  }
+  // Paramètres par style
+  const styleConfig = {
+    glossy: {
+      mainOpacity:   0.55,
+      sideOpacity:   0.25,
+      cornerOpacity: 0.15,
+      mainScale:     [28, 14],
+      sideScale:     [14, 8],
+      cornerScale:   [10, 6],
+      colorTint:     0xffffff,
+    },
+    metallic: {
+      mainOpacity:   0.85,
+      sideOpacity:   0.55,
+      cornerOpacity: 0.35,
+      mainScale:     [32, 16],
+      sideScale:     [18, 10],
+      cornerScale:   [12, 7],
+      colorTint:     0xfff8e8, // léger reflet doré chaud
+    },
+  };
+  const cfg = styleConfig[style];
 
-  // Render
+  // Position des points anatomiques en pixels
+  const points = [
+    { idx: LIPS_HIGHLIGHT_POINTS.centerLower, opacity: cfg.mainOpacity,   scale: cfg.mainScale,   yOffset: -1 },
+    { idx: LIPS_HIGHLIGHT_POINTS.cupidLeft,   opacity: cfg.sideOpacity,   scale: cfg.sideScale,   yOffset: 0  },
+    { idx: LIPS_HIGHLIGHT_POINTS.cupidRight,  opacity: cfg.sideOpacity,   scale: cfg.sideScale,   yOffset: 0  },
+    { idx: LIPS_HIGHLIGHT_POINTS.cornerLeft,  opacity: cfg.cornerOpacity, scale: cfg.cornerScale, yOffset: 0  },
+    { idx: LIPS_HIGHLIGHT_POINTS.cornerRight, opacity: cfg.cornerOpacity, scale: cfg.cornerScale, yOffset: 0  },
+  ];
+
+  points.forEach((pt, i) => {
+    const sprite = webglHighlightSprites[i];
+    const p = lm[pt.idx];
+    if (!p) {
+      sprite.visible = false;
+      return;
+    }
+
+    // Position en pixels (espace écran)
+    const x = p.x * W;
+    const y = p.y * H + pt.yOffset;
+
+    // Décalage du reflet selon orientation de la tête
+    // Quand on tourne la tête à droite, le reflet doit se déplacer un peu à gauche
+    const offsetX = -headRotationY * 25;
+    const offsetY = -headRotationX * 15;
+
+    sprite.position.set(x + offsetX, y + offsetY, 0);
+    sprite.scale.set(pt.scale[0], pt.scale[1], 1);
+
+    // L'intensité du reflet dépend aussi de l'orientation
+    // (les vraies lèvres brillent moins de profil)
+    const orientationFactor = Math.max(0.3, 1 - Math.abs(headRotationY) * 0.8);
+
+    sprite.material.opacity = pt.opacity * m.op * orientationFactor;
+    sprite.material.color.setHex(cfg.colorTint);
+    sprite.visible = true;
+  });
+
   webglRenderer.render(webglScene, webglCamera);
 }
 
 /**
- * Cache les lèvres WebGL (utilisé quand bouche ouverte)
+ * Cache tous les reflets (utilisé quand bouche ouverte)
  */
 function hideWebGLLips() {
-  if (!webglEnabled || !webglLipsMesh) return;
-  webglLipsMesh.visible = false;
-  webglRenderer.render(webglScene, webglCamera);
+  if (!webglEnabled) return;
+  webglHighlightSprites.forEach(s => s.visible = false);
+  if (webglRenderer && webglScene && webglCamera) {
+    webglRenderer.render(webglScene, webglCamera);
+  }
 }
 
 // ============================================================
