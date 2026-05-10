@@ -836,6 +836,10 @@ input[type=range]::-moz-range-thumb {
           <button class="brow-style-btn" data-style="defined">Défini</button>
           <button class="brow-style-btn" data-style="smoky">Smoky</button>
         </div>
+        <div class="toggle-row" style="margin-top: 14px;">
+          <span class="toggle-label">Eyeliner</span>
+          <div class="toggle" id="eyelinerToggle"></div>
+        </div>
       </div>
 
       <div class="panel-section">
@@ -965,6 +969,7 @@ let currentColor = '#A855F7';
 let currentOp = 0.7;
 let currentBrowStyle = 'natural'; // 'natural' | 'defined' | 'brushed'
 let currentEyeStyle = 'natural';  // 'natural' | 'defined' | 'smoky'
+let eyelinerEnabled = false;       // toggle eyeliner on/off
 let currentLipStyle = 'glossy';   // 'matte' | 'glossy' | 'metallic'
 
 // Tone matching — détecté au démarrage et stocké
@@ -1171,6 +1176,12 @@ document.getElementById('eyeStyleRow').addEventListener('click', (e) => {
   currentEyeStyle = btn.dataset.style;
   document.querySelectorAll('#eyeStyleRow .brow-style-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+});
+
+// Toggle eyeliner (off par défaut)
+document.getElementById('eyelinerToggle').addEventListener('click', (e) => {
+  eyelinerEnabled = !eyelinerEnabled;
+  e.currentTarget.classList.toggle('on', eyelinerEnabled);
 });
 
 // Gestion du sélecteur de style lèvres
@@ -1947,13 +1958,9 @@ function applyEyes(lm, W, H) {
   // ========================================================
   // COUCHE 2 — EYELINER (ligne fine sur le ras de cils)
   // ========================================================
-  // STABILITÉ MOBILE :
-  // 1. On utilise SEULEMENT 5 points clés au lieu des 9 du ras de cils
-  //    → moins de variations à interpoler = ligne plus stable
-  // 2. Tracé via courbes de Bezier cubiques pour fluidité maximale
-  // 3. Double couche : une épaisse semi-transparente + une fine opaque
-  //    → masque les micro-tremblements résiduels
+  // Désactivé par défaut, activable via le toggle dans le panel "Style yeux"
   // ========================================================
+  if (eyelinerEnabled) {
   const tcLiner = resetTmpCanvas('eyeliner', W, H);
   const linerRgb = hexToRgb(params.linerColor);
 
@@ -2004,6 +2011,7 @@ function applyEyes(lm, W, H) {
   ctx.drawImage(tmpCanvases.eyeliner, 0, 0);
   ctx.filter = 'none';
   ctx.restore();
+  } // fin if (eyelinerEnabled)
 
   // ========================================================
   // COUCHE 3 — MASCARA (zone des cils supérieurs assombrie)
