@@ -2014,45 +2014,9 @@ function applyEyes(lm, W, H) {
   } // fin if (eyelinerEnabled)
 
   // ========================================================
-  // COUCHE 3 — MASCARA (zone des cils supérieurs assombrie)
+  // (Mascara retiré : créait un trait visible non désiré sur mobile.
+  //  Seule l'ombre à paupière reste pour un rendu naturel.)
   // ========================================================
-  const tcMascara = resetTmpCanvas('mascara', W, H);
-
-  [eyeL, eyeR].forEach(eye => {
-    // Sous-échantillonnage identique à l'eyeliner pour cohérence
-    const allPts = eye.upperLash.map(i => pt(lm, i, W, H));
-    const lashPts = [allPts[0], allPts[2], allPts[4], allPts[6], allPts[8]];
-
-    // Tracé Bezier cubique lissé, légèrement décalé vers le haut
-    tcMascara.beginPath();
-    tcMascara.moveTo(lashPts[0].x, lashPts[0].y - 1);
-    for (let i = 0; i < lashPts.length - 1; i++) {
-      const p0 = lashPts[Math.max(0, i - 1)];
-      const p1 = lashPts[i];
-      const p2 = lashPts[i + 1];
-      const p3 = lashPts[Math.min(lashPts.length - 1, i + 2)];
-
-      const cp1x = p1.x + (p2.x - p0.x) / 6;
-      const cp1y = (p1.y - 1) + (p2.y - p0.y) / 6;
-      const cp2x = p2.x - (p3.x - p1.x) / 6;
-      const cp2y = (p2.y - 1) - (p3.y - p1.y) / 6;
-
-      tcMascara.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y - 1);
-    }
-
-    tcMascara.strokeStyle = `rgba(15, 15, 15, ${params.mascaraOp})`;
-    tcMascara.lineWidth = params.mascaraSize;
-    tcMascara.lineCap = 'round';
-    tcMascara.lineJoin = 'round';
-    tcMascara.stroke();
-  });
-
-  // Blur plus prononcé (3px au lieu de 2px) pour fondre les imprécisions
-  ctx.save();
-  ctx.filter = 'blur(3px)';
-  ctx.drawImage(tmpCanvases.mascara, 0, 0);
-  ctx.filter = 'none';
-  ctx.restore();
 }
 
 /** Blush : 2 zones diffuses sur les pommettes */
