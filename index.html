@@ -149,6 +149,68 @@ body {
 }
 
 /* ============================================================
+   INDICATEUR DE TONE MATCHING — discret au centre de la topbar
+   ============================================================ */
+.tone-indicator {
+  display: none; /* caché jusqu'à détection */
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px 6px 6px;
+  background: rgba(168, 85, 247, 0.06);
+  border: 0.5px solid rgba(168, 85, 247, 0.15);
+  border-radius: 99px;
+  transition: all 0.3s;
+}
+.tone-indicator.show {
+  display: flex;
+}
+.tone-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #B89580; /* placeholder, remplacé par JS */
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  transition: background 0.4s;
+}
+.tone-label {
+  font-size: 10px;
+  color: var(--cream);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 400;
+}
+.tone-rescan {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: color 0.2s, transform 0.4s;
+}
+.tone-rescan:hover {
+  color: var(--electric-purple);
+}
+.tone-rescan.spinning {
+  transform: rotate(360deg);
+}
+.tone-rescan-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* Sur mobile, on cache le label pour gagner de la place */
+@media (max-width: 640px) {
+  .tone-label { display: none; }
+  .tone-indicator { padding: 4px 8px 4px 4px; }
+}
+
+/* ============================================================
    ZONE CAMÉRA
    ============================================================ */
 .main { display: flex; flex: 1; gap: 0; }
@@ -675,6 +737,16 @@ input[type=range]::-moz-range-thumb {
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="logo">mir<span class="accent">o</span>w</div>
+
+    <!-- Indicateur de tone matching (visible une fois détecté) -->
+    <div class="tone-indicator" id="toneIndicator">
+      <div class="tone-swatch" id="toneSwatch"></div>
+      <span class="tone-label" id="toneLabel">Détection en cours...</span>
+      <button class="tone-rescan" id="toneRescan" title="Re-analyser">
+        <span class="tone-rescan-icon">↻</span>
+      </button>
+    </div>
+
     <div class="status-wrap">
       <div class="status-dot" id="statusDot"></div>
       <span class="status-text" id="statusText">Prête à démarrer</span>
@@ -892,6 +964,11 @@ let currentOp = 0.7;
 let currentBrowStyle = 'natural'; // 'natural' | 'defined' | 'brushed'
 let currentEyeStyle = 'natural';  // 'natural' | 'defined' | 'smoky'
 let currentLipStyle = 'glossy';   // 'matte' | 'glossy' | 'metallic'
+
+// Tone matching — détecté au démarrage et stocké
+// Niveaux : 'very-light' | 'light' | 'medium' | 'deep' | null (avant détection)
+let detectedTone = null;
+let toneRGB = null; // RGB moyen de la peau pour debug et affichage
 
 // État des 5 catégories de makeup (modifié par swatches/sliders/looks)
 let makeup = {
@@ -1167,6 +1244,12 @@ function resetCameraOverlay() {
 async function startCamera() {
   try {
     statusText.textContent = 'Activation...';
+
+    // Reset du tone matching pour re-détection
+    detectedTone = null;
+    toneRGB = null;
+    document.getElementById('toneIndicator').classList.remove('show');
+
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: 'user',
@@ -1228,6 +1311,12 @@ function onResults(results) {
 }
 
 function applyMakeupAR(lm, W, H) {
+  // Détection du ton de peau au premier frame (ou re-déclenchée)
+  // On le fait UNE seule fois pour stabilité visuelle
+  if (detectedTone === null) {
+    detectSkinTone(lm, W, H);
+  }
+
   // Ordre : du fond vers le devant (peau → blush → highlight → yeux → sourcils → lèvres)
   applyBlush(lm, W, H);
   applyHighlight(lm, W, H);
@@ -1235,6 +1324,201 @@ function applyMakeupAR(lm, W, H) {
   applyBrows(lm, W, H);
   applyLips(lm, W, H);
 }
+
+// ============================================================
+// TONE MATCHING — détection et adaptation
+// ============================================================
+
+/**
+ * Détecte la teinte moyenne de peau en samplant 4 zones du visage
+ * où il n'y a typiquement pas de maquillage : front, joues, menton.
+ *
+ * Cette fonction lit les pixels de la vidéo source (pas du canvas
+ * de rendu) pour avoir la couleur de peau RÉELLE, sans maquillage.
+ */
+function detectSkinTone(lm, W, H) {
+  // Création d'un canvas temporaire pour lire les pixels de la vidéo
+  // On le fait une fois et on le jette (pas besoin de pool ici)
+  const sampleCanvas = document.createElement('canvas');
+  sampleCanvas.width = W;
+  sampleCanvas.height = H;
+  const sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true });
+
+  // Important : on dessine la vidéo SANS le miroir
+  // (la vidéo affichée est inversée via CSS, pas dans le canvas)
+  sampleCtx.drawImage(video, 0, 0, W, H);
+
+  // 4 zones de sampling : front, joue gauche, joue droite, menton
+  // Indices MediaPipe choisis pour être HORS des zones de maquillage
+  const sampleZones = [
+    { name: 'front',     idx: 9   }, // milieu front
+    { name: 'cheekL',    idx: 234 }, // joue gauche (loin du blush)
+    { name: 'cheekR',    idx: 454 }, // joue droite (loin du blush)
+    { name: 'chin',      idx: 152 }, // menton
+  ];
+
+  const samples = [];
+
+  sampleZones.forEach(({ name, idx }) => {
+    const p = pt(lm, idx, W, H);
+    // On sample un petit carré de 5x5 pixels pour moyenner le bruit
+    const size = 5;
+    const x = Math.max(0, Math.min(W - size, Math.round(p.x - size / 2)));
+    const y = Math.max(0, Math.min(H - size, Math.round(p.y - size / 2)));
+
+    try {
+      const imageData = sampleCtx.getImageData(x, y, size, size);
+      const pixels = imageData.data;
+
+      let r = 0, g = 0, b = 0;
+      const pixelCount = size * size;
+      for (let i = 0; i < pixels.length; i += 4) {
+        r += pixels[i];
+        g += pixels[i + 1];
+        b += pixels[i + 2];
+      }
+      r = Math.round(r / pixelCount);
+      g = Math.round(g / pixelCount);
+      b = Math.round(b / pixelCount);
+
+      // Filtrage : on rejette les samples aberrants
+      // (pixels noirs = cheveux/ombre, pixels saturés = bug)
+      const luminance = (r + g + b) / 3;
+      if (luminance > 50 && luminance < 250) {
+        samples.push({ name, r, g, b, luminance });
+      }
+    } catch (err) {
+      // CORS ou autre erreur de lecture, on ignore ce sample
+      console.warn('[Mirow] Skin sample failed:', name, err);
+    }
+  });
+
+  // Si on n'a pas assez de samples valides, on retry plus tard
+  if (samples.length < 2) {
+    console.warn('[Mirow] Pas assez de samples valides, retry au prochain frame');
+    return;
+  }
+
+  // Moyenne des samples valides
+  const avg = samples.reduce((acc, s) => ({
+    r: acc.r + s.r,
+    g: acc.g + s.g,
+    b: acc.b + s.b,
+  }), { r: 0, g: 0, b: 0 });
+
+  avg.r = Math.round(avg.r / samples.length);
+  avg.g = Math.round(avg.g / samples.length);
+  avg.b = Math.round(avg.b / samples.length);
+
+  toneRGB = avg;
+
+  // Classification en 4 catégories selon la luminance
+  const luminance = (avg.r + avg.g + avg.b) / 3;
+  if (luminance > 200)      detectedTone = 'very-light';
+  else if (luminance > 165) detectedTone = 'light';
+  else if (luminance > 130) detectedTone = 'medium';
+  else                       detectedTone = 'deep';
+
+  console.log('[Mirow] Skin tone detected:', detectedTone, 'avg RGB:', avg, 'luminance:', luminance.toFixed(1));
+
+  // Mise à jour de l'UI
+  updateToneIndicator();
+}
+
+/**
+ * Met à jour l'indicateur visuel dans la topbar
+ */
+function updateToneIndicator() {
+  const indicator = document.getElementById('toneIndicator');
+  const swatch = document.getElementById('toneSwatch');
+  const label = document.getElementById('toneLabel');
+
+  if (!detectedTone || !toneRGB) return;
+
+  // Affichage de la pastille avec la vraie couleur détectée
+  swatch.style.background = `rgb(${toneRGB.r},${toneRGB.g},${toneRGB.b})`;
+
+  // Label en français selon la catégorie
+  const labels = {
+    'very-light': 'Très claire',
+    'light':      'Claire',
+    'medium':     'Médium',
+    'deep':       'Foncée',
+  };
+  label.textContent = `Ton ${labels[detectedTone]}`;
+
+  // Affichage de l'indicateur (s'il était caché)
+  indicator.classList.add('show');
+}
+
+/**
+ * Re-déclenche la détection (bouton refresh)
+ */
+function rescanTone() {
+  const btn = document.getElementById('toneRescan');
+  btn.classList.add('spinning');
+  setTimeout(() => btn.classList.remove('spinning'), 500);
+
+  detectedTone = null;
+  toneRGB = null;
+  document.getElementById('toneLabel').textContent = 'Re-analyse...';
+  // La détection se re-fera au prochain frame dans applyMakeupAR
+}
+
+/**
+ * Retourne les ajustements de rendu pour la catégorie demandée
+ * en fonction du ton de peau détecté.
+ *
+ * Format retourné : { opMultiplier, satBoost, ... }
+ *  - opMultiplier : multiplicateur d'opacité (1.0 = pas de changement)
+ *  - satBoost     : boost de saturation (1.0 = pas de changement)
+ */
+function getToneAdjustments(category) {
+  // Si pas de détection, valeurs neutres
+  if (!detectedTone) {
+    return { opMultiplier: 1.0, satBoost: 1.0 };
+  }
+
+  // Tableau d'ajustements : par catégorie de makeup × par ton de peau
+  const adjustments = {
+    lips: {
+      'very-light': { opMultiplier: 1.0,  satBoost: 1.0  },
+      'light':      { opMultiplier: 1.0,  satBoost: 1.0  },
+      'medium':     { opMultiplier: 1.05, satBoost: 1.05 },
+      'deep':       { opMultiplier: 1.15, satBoost: 1.10 },
+    },
+    eyes: {
+      'very-light': { opMultiplier: 1.0,  satBoost: 1.0  },
+      'light':      { opMultiplier: 1.0,  satBoost: 1.0  },
+      'medium':     { opMultiplier: 1.10, satBoost: 1.0  },
+      'deep':       { opMultiplier: 1.20, satBoost: 1.05 },
+    },
+    blush: {
+      'very-light': { opMultiplier: 0.95, satBoost: 1.0  },
+      'light':      { opMultiplier: 1.0,  satBoost: 1.0  },
+      'medium':     { opMultiplier: 1.10, satBoost: 1.05 },
+      'deep':       { opMultiplier: 1.25, satBoost: 1.15 },
+    },
+    highlight: {
+      'very-light': { opMultiplier: 1.0,  satBoost: 1.0  },
+      'light':      { opMultiplier: 1.0,  satBoost: 1.0  },
+      'medium':     { opMultiplier: 1.15, satBoost: 1.0  },
+      'deep':       { opMultiplier: 1.30, satBoost: 1.0  },
+    },
+    brows: {
+      // Sourcils non ajustés (la couleur est déjà choisie par l'utilisateur)
+      'very-light': { opMultiplier: 1.0, satBoost: 1.0 },
+      'light':      { opMultiplier: 1.0, satBoost: 1.0 },
+      'medium':     { opMultiplier: 1.0, satBoost: 1.0 },
+      'deep':       { opMultiplier: 1.0, satBoost: 1.0 },
+    },
+  };
+
+  return adjustments[category]?.[detectedTone] || { opMultiplier: 1.0, satBoost: 1.0 };
+}
+
+// Branchement du bouton refresh
+document.getElementById('toneRescan').addEventListener('click', rescanTone);
 
 // ============================================================
 // RENDU MAKEUP — 5 fonctions, une par catégorie
@@ -1245,6 +1529,11 @@ function applyLips(lm, W, H) {
   const m = makeup.lips;
   if (!m || !m.c) return;
   const rgb = hexToRgb(m.c);
+
+  // ========================================================
+  // TONE MATCHING — ajustement selon ton de peau détecté
+  // ========================================================
+  const toneAdj = getToneAdjustments('lips');
 
   // ========================================================
   // ANATOMIE DES LÈVRES DANS MEDIAPIPE FACEMESH
@@ -1272,40 +1561,40 @@ function applyLips(lm, W, H) {
   const styleParams = {
     matte: {
       // Mat : opaque, sans reflet, micro-grain
-      baseOp:        m.op * 0.85,   // très opaque
+      baseOp:        m.op * 0.85 * toneAdj.opMultiplier, // ajusté ton de peau
       lowerLightenR: 8,             // lèvre inférieure légèrement plus claire
       lowerLightenG: 4,
       lowerLightenB: 5,
       shineOp:       0,             // PAS de reflet humide
       shineSize:     0,
       sideShineOp:   0,             // PAS de reflets latéraux
-      saturationBoost: 1.0,         // pas de boost de couleur
+      saturationBoost: 1.0 * toneAdj.satBoost, // ajusté ton de peau
       blurAmount:    1.4,           // blur léger pour bords nets
       grainNoise:    true,          // micro-grain pour texture mate
     },
     glossy: {
       // Glossy : effet humide central, lèvre inférieure plus claire
-      baseOp:        m.op * 0.7,
+      baseOp:        m.op * 0.7 * toneAdj.opMultiplier,
       lowerLightenR: 25,
       lowerLightenG: 10,
       lowerLightenB: 15,
       shineOp:       0.18,          // reflet humide visible
       shineSize:     0.22,
       sideShineOp:   0.06,          // léger highlight latéral
-      saturationBoost: 1.0,
+      saturationBoost: 1.0 * toneAdj.satBoost,
       blurAmount:    2.2,           // blur moyen pour fondu naturel
       grainNoise:    false,
     },
     metallic: {
       // Metallic : reflets multiples, saturation boostée, micro-paillettes
-      baseOp:        m.op * 0.78,
+      baseOp:        m.op * 0.78 * toneAdj.opMultiplier,
       lowerLightenR: 35,            // contraste fort haut/bas
       lowerLightenG: 18,
       lowerLightenB: 22,
       shineOp:       0.32,          // reflet central fort
       shineSize:     0.28,
       sideShineOp:   0.18,          // reflets latéraux marqués
-      saturationBoost: 1.15,        // couleurs +15% saturées
+      saturationBoost: 1.15 * toneAdj.satBoost, // metallic +15% × tone
       blurAmount:    1.8,
       grainNoise:    false,
       shimmer:       true,          // points lumineux supplémentaires
@@ -1471,6 +1760,10 @@ function applyEyes(lm, W, H) {
   if (!m || !m.c) return;
   const rgb = hexToRgb(m.c);
 
+  // Tone matching
+  const toneAdj = getToneAdjustments('eyes');
+  const opMul = toneAdj.opMultiplier;
+
   // ========================================================
   // ANATOMIE DES YEUX DANS MEDIAPIPE FACEMESH
   // --------------------------------------------------------
@@ -1568,7 +1861,7 @@ function applyEyes(lm, W, H) {
     });
     [...creasePts].reverse().forEach(p => tcShadow.lineTo(p.x, p.y));
     tcShadow.closePath();
-    tcShadow.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * params.mobileOp})`;
+    tcShadow.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * params.mobileOp * opMul})`;
     tcShadow.fill();
 
     // ZONE 2 : Pli
@@ -1586,7 +1879,7 @@ function applyEyes(lm, W, H) {
     });
     [...midPts].reverse().forEach(p => tcShadow.lineTo(p.x, p.y));
     tcShadow.closePath();
-    tcShadow.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * params.creaseOp})`;
+    tcShadow.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * params.creaseOp * opMul})`;
     tcShadow.fill();
 
     // ZONE 3 : Sous-sourcil (très diffuse)
@@ -1599,7 +1892,7 @@ function applyEyes(lm, W, H) {
     });
     [...browPts].reverse().forEach(p => tcShadow.lineTo(p.x, p.y));
     tcShadow.closePath();
-    tcShadow.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * params.browLowOp})`;
+    tcShadow.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * params.browLowOp * opMul})`;
     tcShadow.fill();
   });
 
@@ -1683,6 +1976,11 @@ function applyBlush(lm, W, H) {
   const m = makeup.blush;
   if (!m || !m.c) return;
   const rgb = hexToRgb(m.c);
+
+  // Tone matching — peaux foncées ont besoin de plus d'opacité
+  const toneAdj = getToneAdjustments('blush');
+  const opMul = toneAdj.opMultiplier;
+
   const nc = pt(lm, 1, W, H); // pointe du nez (référence largeur)
 
   // 2 points par joue pour zone réaliste
@@ -1696,8 +1994,8 @@ function applyBlush(lm, W, H) {
     const cx = (c1.x + c2.x) / 2;
     const cy = (c1.y + c2.y) / 2;
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, size);
-    grad.addColorStop(0,   `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.35})`);
-    grad.addColorStop(0.4, `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.15})`);
+    grad.addColorStop(0,   `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.35 * opMul})`);
+    grad.addColorStop(0.4, `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.15 * opMul})`);
     grad.addColorStop(1,   'rgba(0,0,0,0)');
 
     ctx.save();
@@ -1861,6 +2159,10 @@ function applyHighlight(lm, W, H) {
   if (!m || !m.c || m.op < 0.05) return;
   const rgb = hexToRgb(m.c);
 
+  // Tone matching — peaux foncées ont besoin d'un highlight plus intense
+  const toneAdj = getToneAdjustments('highlight');
+  const opMul = toneAdj.opMultiplier;
+
   const points = [
     { pt: pt(lm, 116, W, H), rx: 18, ry: 12 }, // pommette gauche
     { pt: pt(lm, 345, W, H), rx: 18, ry: 12 }, // pommette droite
@@ -1872,8 +2174,8 @@ function applyHighlight(lm, W, H) {
       center.x, center.y, 0,
       center.x, center.y, Math.max(rx, ry)
     );
-    grad.addColorStop(0,   `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.45})`);
-    grad.addColorStop(0.5, `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.15})`);
+    grad.addColorStop(0,   `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.45 * opMul})`);
+    grad.addColorStop(0.5, `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.15 * opMul})`);
     grad.addColorStop(1,   'rgba(0,0,0,0)');
 
     ctx.save();
