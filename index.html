@@ -53,12 +53,28 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* Reset global des boutons — évite le rendu natif iOS/Safari */
+/* ============================================================
+   RESET BOUTONS — agressif pour casser le style natif Safari/iOS
+   Sans ce reset, Safari rend les <button> en blanc-sur-blanc
+   avec une bordure système qui ignore notre design.
+   ============================================================ */
 button {
-  -webkit-appearance: none;
-  appearance: none;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  outline: none;
+  cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  font-family: inherit;
+  -webkit-font-smoothing: inherit;
+}
+button:focus { outline: none; }
+button:focus-visible {
+  outline: 1px solid var(--electric-purple);
+  outline-offset: 2px;
 }
 
 body {
@@ -480,9 +496,6 @@ input[type=range]::-moz-range-thumb {
   text-transform: uppercase;
 }
 .look-card.active .look-name { color: var(--cream); }
-
-/* Toggles options */
-.toggle-row {
 
 /* Style sourcils — boutons radio horizontaux */
 .brow-style-row {
