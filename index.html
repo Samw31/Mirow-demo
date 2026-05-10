@@ -1252,6 +1252,9 @@ async function startCamera() {
     toneRGB = null;
     document.getElementById('toneIndicator').classList.remove('show');
 
+    // Reset du lissage temporel (évite saut visuel au redémarrage)
+    smoothedLandmarks = null;
+
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: 'user',
@@ -1278,8 +1281,8 @@ function initFaceMesh() {
   fm.setOptions({
     maxNumFaces: 1,
     refineLandmarks: true,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.7,
   });
   fm.onResults(onResults);
 
@@ -1300,6 +1303,40 @@ function initFaceMesh() {
   cam.start();
 }
 
+// ============================================================
+// LISSAGE TEMPOREL DES LANDMARKS
+// ----------------------------------------------------------
+// MediaPipe FaceMesh produit naturellement du jitter (~1-3px de
+// variation entre frames même sans bouger). Sur les fines lignes
+// comme l'eyeliner, ça crée un tremblement visible.
+//
+// On applique un Exponential Moving Average (EMA) :
+//   smoothed = alpha * current + (1 - alpha) * previous
+//
+// alpha bas (0.3) = très lissé mais latence de réponse
+// alpha haut (0.7) = réactif mais plus de jitter
+// alpha = 0.5 = bon compromis pour mobile
+// ============================================================
+let smoothedLandmarks = null;
+const SMOOTHING_ALPHA = 0.5;
+
+function smoothLandmarks(currentLm) {
+  if (!smoothedLandmarks) {
+    // Premier frame : on copie directement
+    smoothedLandmarks = currentLm.map(p => ({ x: p.x, y: p.y, z: p.z }));
+    return smoothedLandmarks;
+  }
+
+  // EMA pour chaque landmark
+  for (let i = 0; i < currentLm.length; i++) {
+    smoothedLandmarks[i].x = SMOOTHING_ALPHA * currentLm[i].x + (1 - SMOOTHING_ALPHA) * smoothedLandmarks[i].x;
+    smoothedLandmarks[i].y = SMOOTHING_ALPHA * currentLm[i].y + (1 - SMOOTHING_ALPHA) * smoothedLandmarks[i].y;
+    smoothedLandmarks[i].z = SMOOTHING_ALPHA * currentLm[i].z + (1 - SMOOTHING_ALPHA) * smoothedLandmarks[i].z;
+  }
+
+  return smoothedLandmarks;
+}
+
 function onResults(results) {
   const W = video.videoWidth || 640;
   const H = video.videoHeight || 480;
@@ -1308,7 +1345,9 @@ function onResults(results) {
   ctx.clearRect(0, 0, W, H);
 
   if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-    applyMakeupAR(results.multiFaceLandmarks[0], W, H);
+    // Lissage temporel pour réduire le jitter
+    const smoothed = smoothLandmarks(results.multiFaceLandmarks[0]);
+    applyMakeupAR(smoothed, W, H);
   }
 }
 
@@ -1908,32 +1947,60 @@ function applyEyes(lm, W, H) {
   // ========================================================
   // COUCHE 2 — EYELINER (ligne fine sur le ras de cils)
   // ========================================================
+  // STABILITÉ MOBILE :
+  // 1. On utilise SEULEMENT 5 points clés au lieu des 9 du ras de cils
+  //    → moins de variations à interpoler = ligne plus stable
+  // 2. Tracé via courbes de Bezier cubiques pour fluidité maximale
+  // 3. Double couche : une épaisse semi-transparente + une fine opaque
+  //    → masque les micro-tremblements résiduels
+  // ========================================================
   const tcLiner = resetTmpCanvas('eyeliner', W, H);
   const linerRgb = hexToRgb(params.linerColor);
 
   [eyeL, eyeR].forEach(eye => {
-    const lashPts = eye.upperLash.map(i => pt(lm, i, W, H));
+    // Sous-échantillonnage : on garde 5 points stratégiques (1, 3, 5, 7, 9 sur 9)
+    // Les points intermédiaires sont les plus sujets au jitter
+    const allPts = eye.upperLash.map(i => pt(lm, i, W, H));
+    const lashPts = [allPts[0], allPts[2], allPts[4], allPts[6], allPts[8]];
 
-    tcLiner.beginPath();
-    tcLiner.moveTo(lashPts[0].x, lashPts[0].y);
-    // Tracé fluide via courbes quadratiques entre points
-    for (let i = 1; i < lashPts.length - 1; i++) {
-      const xc = (lashPts[i].x + lashPts[i + 1].x) / 2;
-      const yc = (lashPts[i].y + lashPts[i + 1].y) / 2;
-      tcLiner.quadraticCurveTo(lashPts[i].x, lashPts[i].y, xc, yc);
-    }
-    tcLiner.lineTo(lashPts[lashPts.length - 1].x, lashPts[lashPts.length - 1].y);
+    // Tracé avec courbes de Bezier cubiques (plus lisse que quadratique)
+    const drawSmoothCurve = (ctxToUse) => {
+      ctxToUse.beginPath();
+      ctxToUse.moveTo(lashPts[0].x, lashPts[0].y);
+      for (let i = 0; i < lashPts.length - 1; i++) {
+        const p0 = lashPts[Math.max(0, i - 1)];
+        const p1 = lashPts[i];
+        const p2 = lashPts[i + 1];
+        const p3 = lashPts[Math.min(lashPts.length - 1, i + 2)];
 
-    tcLiner.strokeStyle = `rgba(${linerRgb.r},${linerRgb.g},${linerRgb.b},${params.linerOp})`;
-    tcLiner.lineWidth = params.linerWidth;
+        // Points de contrôle Catmull-Rom → Bezier
+        const cp1x = p1.x + (p2.x - p0.x) / 6;
+        const cp1y = p1.y + (p2.y - p0.y) / 6;
+        const cp2x = p2.x - (p3.x - p1.x) / 6;
+        const cp2y = p2.y - (p3.y - p1.y) / 6;
+
+        ctxToUse.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+      }
+    };
+
+    // Couche 1 : trait épais semi-transparent (masque le jitter)
+    drawSmoothCurve(tcLiner);
+    tcLiner.strokeStyle = `rgba(${linerRgb.r},${linerRgb.g},${linerRgb.b},${params.linerOp * 0.5})`;
+    tcLiner.lineWidth = params.linerWidth * 2.2;
     tcLiner.lineCap = 'round';
     tcLiner.lineJoin = 'round';
     tcLiner.stroke();
+
+    // Couche 2 : trait fin opaque (définition)
+    drawSmoothCurve(tcLiner);
+    tcLiner.strokeStyle = `rgba(${linerRgb.r},${linerRgb.g},${linerRgb.b},${params.linerOp})`;
+    tcLiner.lineWidth = params.linerWidth;
+    tcLiner.stroke();
   });
 
-  // Application avec blur très léger (l'eyeliner doit rester net)
+  // Application avec blur léger pour adoucir les bords (sans flouter le trait)
   ctx.save();
-  ctx.filter = 'blur(0.4px)';
+  ctx.filter = 'blur(0.6px)';
   ctx.drawImage(tmpCanvases.eyeliner, 0, 0);
   ctx.filter = 'none';
   ctx.restore();
@@ -1944,20 +2011,27 @@ function applyEyes(lm, W, H) {
   const tcMascara = resetTmpCanvas('mascara', W, H);
 
   [eyeL, eyeR].forEach(eye => {
-    const lashPts = eye.upperLash.map(i => pt(lm, i, W, H));
+    // Sous-échantillonnage identique à l'eyeliner pour cohérence
+    const allPts = eye.upperLash.map(i => pt(lm, i, W, H));
+    const lashPts = [allPts[0], allPts[2], allPts[4], allPts[6], allPts[8]];
 
-    // On dessine une ligne épaisse juste au-dessus du ras de cils
-    // qui simule l'épaisseur des cils maquillés
+    // Tracé Bezier cubique lissé, légèrement décalé vers le haut
     tcMascara.beginPath();
     tcMascara.moveTo(lashPts[0].x, lashPts[0].y - 1);
-    for (let i = 1; i < lashPts.length - 1; i++) {
-      const xc = (lashPts[i].x + lashPts[i + 1].x) / 2;
-      const yc = (lashPts[i].y + lashPts[i + 1].y) / 2 - 1;
-      tcMascara.quadraticCurveTo(lashPts[i].x, lashPts[i].y - 1, xc, yc);
-    }
-    tcMascara.lineTo(lashPts[lashPts.length - 1].x, lashPts[lashPts.length - 1].y - 1);
+    for (let i = 0; i < lashPts.length - 1; i++) {
+      const p0 = lashPts[Math.max(0, i - 1)];
+      const p1 = lashPts[i];
+      const p2 = lashPts[i + 1];
+      const p3 = lashPts[Math.min(lashPts.length - 1, i + 2)];
 
-    // Couleur sombre (toujours noire pour le mascara, peu importe l'ombre)
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = (p1.y - 1) + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = (p2.y - 1) - (p3.y - p1.y) / 6;
+
+      tcMascara.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y - 1);
+    }
+
     tcMascara.strokeStyle = `rgba(15, 15, 15, ${params.mascaraOp})`;
     tcMascara.lineWidth = params.mascaraSize;
     tcMascara.lineCap = 'round';
@@ -1965,9 +2039,9 @@ function applyEyes(lm, W, H) {
     tcMascara.stroke();
   });
 
-  // Application avec blur moyen (effet "cils flous épaissis")
+  // Blur plus prononcé (3px au lieu de 2px) pour fondre les imprécisions
   ctx.save();
-  ctx.filter = 'blur(2px)';
+  ctx.filter = 'blur(3px)';
   ctx.drawImage(tmpCanvases.mascara, 0, 0);
   ctx.filter = 'none';
   ctx.restore();
