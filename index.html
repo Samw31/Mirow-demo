@@ -740,6 +740,15 @@ input[type=range]::-moz-range-thumb {
       </div>
 
       <div class="panel-section">
+        <div class="section-label">Style lèvres</div>
+        <div class="brow-style-row" id="lipStyleRow">
+          <button class="brow-style-btn" data-style="matte">Mat</button>
+          <button class="brow-style-btn active" data-style="glossy">Glossy</button>
+          <button class="brow-style-btn" data-style="metallic">Metallic</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
         <div class="section-label">Style sourcils</div>
         <div class="brow-style-row" id="browStyleRow">
           <button class="brow-style-btn active" data-style="natural">Naturel</button>
@@ -882,6 +891,7 @@ let currentColor = '#A855F7';
 let currentOp = 0.7;
 let currentBrowStyle = 'natural'; // 'natural' | 'defined' | 'brushed'
 let currentEyeStyle = 'natural';  // 'natural' | 'defined' | 'smoky'
+let currentLipStyle = 'glossy';   // 'matte' | 'glossy' | 'metallic'
 
 // État des 5 catégories de makeup (modifié par swatches/sliders/looks)
 let makeup = {
@@ -1084,6 +1094,15 @@ document.getElementById('eyeStyleRow').addEventListener('click', (e) => {
   btn.classList.add('active');
 });
 
+// Gestion du sélecteur de style lèvres
+document.getElementById('lipStyleRow').addEventListener('click', (e) => {
+  const btn = e.target.closest('.brow-style-btn');
+  if (!btn) return;
+  currentLipStyle = btn.dataset.style;
+  document.querySelectorAll('#lipStyleRow .brow-style-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+});
+
 // ============================================================
 // FIX P0.2 — GESTION D'ERREUR CAMÉRA
 // ----------------------------------------------------------
@@ -1226,15 +1245,96 @@ function applyLips(lm, W, H) {
   const m = makeup.lips;
   if (!m || !m.c) return;
   const rgb = hexToRgb(m.c);
-  const op = m.op * 0.65;
 
-  // Indices MediaPipe pour contour des lèvres (haut + bas)
+  // ========================================================
+  // ANATOMIE DES LÈVRES DANS MEDIAPIPE FACEMESH
+  // --------------------------------------------------------
+  // oU = contour de la lèvre supérieure (extérieur + intérieur)
+  // oL = contour de la lèvre inférieure (extérieur + intérieur)
+  // Points clés : 13 = milieu entre les 2 lèvres, 61/291 = coins
+  // ========================================================
   const oU = [61,185,40,39,37,0,267,269,270,409,291,308,415,310,311,312,13,82,81,80,191,78,61];
   const oL = [61,146,91,181,84,17,314,405,321,375,291,308,324,318,402,317,14,87,178,88,95,78,61];
 
+  const lipCenter = pt(lm, 13, W, H);
+  const lipL      = pt(lm, 61, W, H);
+  const lipR      = pt(lm, 291, W, H);
+  const lipWidth  = Math.abs(lipR.x - lipL.x);
+
+  const style = currentLipStyle || 'glossy';
+
+  // ========================================================
+  // PARAMÈTRES PAR FINISH
+  // Chaque finish a ses propres valeurs de saturation, reflets,
+  // blur et points de lumière. C'est ce qui crée la différence
+  // visible entre un mat, un glossy et un metallic.
+  // ========================================================
+  const styleParams = {
+    matte: {
+      // Mat : opaque, sans reflet, micro-grain
+      baseOp:        m.op * 0.85,   // très opaque
+      lowerLightenR: 8,             // lèvre inférieure légèrement plus claire
+      lowerLightenG: 4,
+      lowerLightenB: 5,
+      shineOp:       0,             // PAS de reflet humide
+      shineSize:     0,
+      sideShineOp:   0,             // PAS de reflets latéraux
+      saturationBoost: 1.0,         // pas de boost de couleur
+      blurAmount:    1.4,           // blur léger pour bords nets
+      grainNoise:    true,          // micro-grain pour texture mate
+    },
+    glossy: {
+      // Glossy : effet humide central, lèvre inférieure plus claire
+      baseOp:        m.op * 0.7,
+      lowerLightenR: 25,
+      lowerLightenG: 10,
+      lowerLightenB: 15,
+      shineOp:       0.18,          // reflet humide visible
+      shineSize:     0.22,
+      sideShineOp:   0.06,          // léger highlight latéral
+      saturationBoost: 1.0,
+      blurAmount:    2.2,           // blur moyen pour fondu naturel
+      grainNoise:    false,
+    },
+    metallic: {
+      // Metallic : reflets multiples, saturation boostée, micro-paillettes
+      baseOp:        m.op * 0.78,
+      lowerLightenR: 35,            // contraste fort haut/bas
+      lowerLightenG: 18,
+      lowerLightenB: 22,
+      shineOp:       0.32,          // reflet central fort
+      shineSize:     0.28,
+      sideShineOp:   0.18,          // reflets latéraux marqués
+      saturationBoost: 1.15,        // couleurs +15% saturées
+      blurAmount:    1.8,
+      grainNoise:    false,
+      shimmer:       true,          // points lumineux supplémentaires
+    },
+  };
+
+  const params = styleParams[style];
+
+  // Application du boost de saturation pour metallic
+  // (on déplace la couleur vers une teinte plus pure)
+  let r = rgb.r, g = rgb.g, b = rgb.b;
+  if (params.saturationBoost > 1) {
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const range = max - min;
+    if (range > 0) {
+      // On amplifie l'écart entre la couleur dominante et les autres
+      const boost = (params.saturationBoost - 1) * range;
+      r = Math.min(255, Math.max(0, r + (r === max ? boost : (r === min ? -boost : 0))));
+      g = Math.min(255, Math.max(0, g + (g === max ? boost : (g === min ? -boost : 0))));
+      b = Math.min(255, Math.max(0, b + (b === max ? boost : (b === min ? -boost : 0))));
+    }
+  }
+
   const tc = resetTmpCanvas('lips', W, H);
 
-  // Lèvre supérieure
+  // ========================================================
+  // COUCHE 1 — REMPLISSAGE LÈVRE SUPÉRIEURE
+  // ========================================================
   tc.beginPath();
   oU.forEach((idx, i) => {
     const p = pt(lm, idx, W, H);
@@ -1242,10 +1342,13 @@ function applyLips(lm, W, H) {
     else tc.lineTo(p.x, p.y);
   });
   tc.closePath();
-  tc.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${op})`;
+  tc.fillStyle = `rgba(${r},${g},${b},${params.baseOp})`;
   tc.fill();
 
-  // Lèvre inférieure (légèrement plus claire pour effet 3D)
+  // ========================================================
+  // COUCHE 2 — REMPLISSAGE LÈVRE INFÉRIEURE
+  // (légèrement plus claire pour donner du volume 3D)
+  // ========================================================
   tc.beginPath();
   oL.forEach((idx, i) => {
     const p = pt(lm, idx, W, H);
@@ -1253,34 +1356,110 @@ function applyLips(lm, W, H) {
     else tc.lineTo(p.x, p.y);
   });
   tc.closePath();
-  tc.fillStyle = `rgba(${Math.min(rgb.r+25,255)},${Math.min(rgb.g+10,255)},${Math.min(rgb.b+15,255)},${op})`;
+  const lowerR = Math.min(r + params.lowerLightenR, 255);
+  const lowerG = Math.min(g + params.lowerLightenG, 255);
+  const lowerB = Math.min(b + params.lowerLightenB, 255);
+  tc.fillStyle = `rgba(${lowerR},${lowerG},${lowerB},${params.baseOp})`;
   tc.fill();
 
-  // Reflet humide (radial blanc translucide)
-  const lipCenter = pt(lm, 13, W, H);
-  const lipL = pt(lm, 61, W, H);
-  const lipR = pt(lm, 291, W, H);
-  const lipWidth = Math.abs(lipR.x - lipL.x);
-  const shineGrad = tc.createRadialGradient(
-    lipCenter.x, lipCenter.y - 2, 0,
-    lipCenter.x, lipCenter.y - 2, lipWidth * 0.2
-  );
-  shineGrad.addColorStop(0, 'rgba(255,255,255,0.15)');
-  shineGrad.addColorStop(1, 'rgba(255,255,255,0)');
+  // ========================================================
+  // COUCHE 3 — REFLET HUMIDE CENTRAL (glossy + metallic)
+  // ========================================================
+  if (params.shineOp > 0) {
+    // Reflet sur la lèvre INFÉRIEURE (c'est là que la lumière rebondit)
+    const lowerCenter = pt(lm, 17, W, H); // milieu lèvre inférieure
+    const shineGrad = tc.createRadialGradient(
+      lowerCenter.x, lowerCenter.y - 2, 0,
+      lowerCenter.x, lowerCenter.y - 2, lipWidth * params.shineSize
+    );
+    shineGrad.addColorStop(0,    `rgba(255,255,255,${params.shineOp})`);
+    shineGrad.addColorStop(0.5,  `rgba(255,255,255,${params.shineOp * 0.4})`);
+    shineGrad.addColorStop(1,    'rgba(255,255,255,0)');
 
-  tc.beginPath();
-  oU.forEach((idx, i) => {
-    const p = pt(lm, idx, W, H);
-    if (i === 0) tc.moveTo(p.x, p.y);
-    else tc.lineTo(p.x, p.y);
-  });
-  tc.closePath();
-  tc.fillStyle = shineGrad;
-  tc.fill();
+    tc.beginPath();
+    oL.forEach((idx, i) => {
+      const p = pt(lm, idx, W, H);
+      if (i === 0) tc.moveTo(p.x, p.y);
+      else tc.lineTo(p.x, p.y);
+    });
+    tc.closePath();
+    tc.fillStyle = shineGrad;
+    tc.fill();
+  }
 
-  // Application avec léger blur pour fondu naturel
+  // ========================================================
+  // COUCHE 4 — REFLETS LATÉRAUX (metallic uniquement)
+  // ========================================================
+  if (params.sideShineOp > 0) {
+    // 2 petits reflets sur les "monts" de la lèvre supérieure
+    // (l'arc de Cupidon a 2 sommets)
+    const cupidL = pt(lm, 39, W, H);
+    const cupidR = pt(lm, 269, W, H);
+
+    [cupidL, cupidR].forEach(cupid => {
+      const sideGrad = tc.createRadialGradient(
+        cupid.x, cupid.y, 0,
+        cupid.x, cupid.y, lipWidth * 0.08
+      );
+      sideGrad.addColorStop(0, `rgba(255,255,255,${params.sideShineOp})`);
+      sideGrad.addColorStop(1, 'rgba(255,255,255,0)');
+      tc.fillStyle = sideGrad;
+      tc.beginPath();
+      tc.arc(cupid.x, cupid.y, lipWidth * 0.08, 0, Math.PI * 2);
+      tc.fill();
+    });
+  }
+
+  // ========================================================
+  // COUCHE 5 — SHIMMER METALLIC (points lumineux)
+  // Simule les micro-particules réfléchissantes des lipsticks metallic
+  // ========================================================
+  if (params.shimmer) {
+    // 8 petits points lumineux répartis sur les lèvres
+    // Position pseudo-aléatoire mais déterministe (pour stabilité visuelle)
+    const shimmerCount = 12;
+    for (let i = 0; i < shimmerCount; i++) {
+      // Distribution sur la largeur des lèvres
+      const t = (i / (shimmerCount - 1));
+      const x = lipL.x + (lipR.x - lipL.x) * t;
+      // Position verticale alternée entre lèvre haute et basse
+      const isUpper = i % 2 === 0;
+      const baseY = isUpper ? lipCenter.y - 3 : lipCenter.y + 3;
+      const y = baseY + Math.sin(i * 4.7) * 2;
+
+      // Petit point blanc translucide
+      const radius = 0.8 + (Math.sin(i * 7.3) + 1) * 0.6;
+      tc.beginPath();
+      tc.arc(x, y, radius, 0, Math.PI * 2);
+      tc.fillStyle = `rgba(255,255,255,${0.4 + Math.sin(i * 11.1) * 0.2})`;
+      tc.fill();
+    }
+  }
+
+  // ========================================================
+  // COUCHE 6 — MICRO-GRAIN (matte uniquement)
+  // Simule la texture poudrée des rouges à lèvres mats
+  // ========================================================
+  if (params.grainNoise) {
+    // On ajoute un voile très léger de variations aléatoires
+    // pour casser l'aspect "plat" et donner une texture poudrée
+    tc.save();
+    tc.globalCompositeOperation = 'multiply';
+    tc.globalAlpha = 0.08;
+    for (let i = 0; i < 40; i++) {
+      const px = lipL.x + (lipR.x - lipL.x) * Math.random();
+      const py = lipCenter.y - 4 + Math.random() * 12;
+      tc.fillStyle = Math.random() > 0.5 ? '#000' : '#fff';
+      tc.fillRect(px, py, 1, 1);
+    }
+    tc.restore();
+  }
+
+  // ========================================================
+  // APPLICATION FINALE — blur ajusté selon le finish
+  // ========================================================
   ctx.save();
-  ctx.filter = 'blur(2px)';
+  ctx.filter = `blur(${params.blurAmount}px)`;
   ctx.drawImage(tmpCanvases.lips, 0, 0);
   ctx.filter = 'none';
   ctx.restore();
