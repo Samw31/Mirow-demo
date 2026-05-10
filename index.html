@@ -1977,31 +1977,59 @@ function applyBlush(lm, W, H) {
   if (!m || !m.c) return;
   const rgb = hexToRgb(m.c);
 
-  // Tone matching — peaux foncées ont besoin de plus d'opacité
   const toneAdj = getToneAdjustments('blush');
   const opMul = toneAdj.opMultiplier;
 
-  const nc = pt(lm, 1, W, H); // pointe du nez (référence largeur)
+  // Points de référence anatomiques pour calculer position + direction
+  const cheekboneL = pt(lm, 234, W, H); // tempe gauche (point externe)
+  const cheekboneR = pt(lm, 454, W, H); // tempe droite
+  const cheekCenterL = pt(lm, 117, W, H); // pommette gauche centrale
+  const cheekCenterR = pt(lm, 346, W, H); // pommette droite centrale
+  const noseTip = pt(lm, 1, W, H);
 
-  // 2 points par joue pour zone réaliste
+  // Largeur de référence pour scaler le blush proportionnellement au visage
+  const faceWidth = Math.abs(cheekboneR.x - cheekboneL.x);
+
   const cheeks = [
-    [pt(lm, 117, W, H), pt(lm, 123, W, H)],
-    [pt(lm, 346, W, H), pt(lm, 352, W, H)],
+    {
+      center: cheekCenterL,
+      temple: cheekboneL,
+      side: 'left',
+    },
+    {
+      center: cheekCenterR,
+      temple: cheekboneR,
+      side: 'right',
+    },
   ];
 
-  cheeks.forEach(([c1, c2]) => {
-    const size = Math.abs(c1.x - nc.x) * 0.85;
-    const cx = (c1.x + c2.x) / 2;
-    const cy = (c1.y + c2.y) / 2;
-    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, size);
-    grad.addColorStop(0,   `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.35 * opMul})`);
-    grad.addColorStop(0.4, `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.15 * opMul})`);
-    grad.addColorStop(1,   'rgba(0,0,0,0)');
+  cheeks.forEach(({ center, temple, side }) => {
+    // Cœur saturé : entre la pommette et la tempe (33% vers la tempe)
+    const cx = center.x + (temple.x - center.x) * 0.33;
+    const cy = center.y + (temple.y - center.y) * 0.33;
+
+    // Direction du blush : angle entre pommette et tempe
+    // C'est cette rotation qui donne l'effet "lifté" naturel
+    const angle = Math.atan2(temple.y - center.y, temple.x - center.x);
+
+    // Dimensions oblongues
+    const radiusX = faceWidth * 0.16; // longueur (vers la tempe)
+    const radiusY = faceWidth * 0.09; // largeur (perpendiculaire)
+
+    // Gradient avec cœur saturé qui se dilue vers les bords
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radiusX);
+    grad.addColorStop(0,    `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.45 * opMul})`);
+    grad.addColorStop(0.35, `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.25 * opMul})`);
+    grad.addColorStop(0.7,  `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.10 * opMul})`);
+    grad.addColorStop(1,    'rgba(0,0,0,0)');
 
     ctx.save();
-    ctx.filter = 'blur(6px)';
+    ctx.filter = 'blur(8px)'; // blur plus fort pour fondu très diffus
+    ctx.translate(cx, cy);
+    ctx.rotate(angle); // rotation vers la tempe = effet lifté
+    ctx.translate(-cx, -cy);
     ctx.beginPath();
-    ctx.ellipse(cx, cy, size, size * 0.7, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy, radiusX, radiusY, 0, 0, Math.PI * 2);
     ctx.fillStyle = grad;
     ctx.fill();
     ctx.filter = 'none';
