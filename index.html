@@ -467,6 +467,39 @@ input[type=range]::-moz-range-thumb {
 
 /* Toggles options */
 .toggle-row {
+
+/* Style sourcils — boutons radio horizontaux */
+.brow-style-row {
+  display: flex;
+  gap: 6px;
+}
+.brow-style-btn {
+  flex: 1;
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 0.5px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.brow-style-btn:hover {
+  border-color: rgba(168, 85, 247, 0.3);
+  color: var(--electric-purple);
+}
+.brow-style-btn.active {
+  border-color: transparent;
+  background: rgba(168, 85, 247, 0.12);
+  color: var(--electric-purple);
+}
+
+/* Toggles options */
+.toggle-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -667,6 +700,15 @@ input[type=range]::-moz-range-thumb {
       </div>
 
       <div class="panel-section">
+        <div class="section-label">Style sourcils</div>
+        <div class="brow-style-row" id="browStyleRow">
+          <button class="brow-style-btn active" data-style="natural">Naturel</button>
+          <button class="brow-style-btn" data-style="defined">Défini</button>
+          <button class="brow-style-btn" data-style="brushed">Brossé</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
         <div class="section-label">Options</div>
         <div class="toggle-row">
           <span class="toggle-label">Lissage peau</span>
@@ -786,6 +828,7 @@ const LOOKS = [
 let currentCat = 'lips';
 let currentColor = '#A855F7';
 let currentOp = 0.7;
+let currentBrowStyle = 'natural'; // 'natural' | 'defined' | 'brushed'
 
 // État des 5 catégories de makeup (modifié par swatches/sliders/looks)
 let makeup = {
@@ -964,6 +1007,15 @@ document.getElementById('opSlider').addEventListener('input', (e) => {
 // Gestion des toggles
 document.querySelectorAll('.toggle').forEach(t => {
   t.addEventListener('click', () => t.classList.toggle('on'));
+});
+
+// Gestion du sélecteur de style sourcils
+document.getElementById('browStyleRow').addEventListener('click', (e) => {
+  const btn = e.target.closest('.brow-style-btn');
+  if (!btn) return;
+  currentBrowStyle = btn.dataset.style;
+  document.querySelectorAll('.brow-style-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
 });
 
 // ============================================================
@@ -1242,38 +1294,138 @@ function applyBrows(lm, W, H) {
   if (!m || !m.c) return;
   const rgb = hexToRgb(m.c);
 
-  const browL = [70, 63, 105, 66, 107, 55, 65, 52, 53, 46];
-  const browR = [300, 293, 334, 296, 336, 285, 295, 282, 283, 276];
+  // ========================================================
+  // ANATOMIE DU SOURCIL DANS MEDIAPIPE FACEMESH
+  // --------------------------------------------------------
+  // MediaPipe nous donne 2 lignes de landmarks par sourcil :
+  //  - LIGNE DU HAUT : suit le bord supérieur du sourcil
+  //  - LIGNE DU BAS  : suit le bord inférieur (proche de la paupière)
+  //
+  // En reliant les 2 lignes, on obtient un POLYGONE FERMÉ qui
+  // épouse la forme réelle du sourcil — pas juste une ligne.
+  // C'est ça le grand changement vs la v1.
+  // ========================================================
+
+  // Sourcil GAUCHE (côté gauche du visage = œil droit du spectateur)
+  // Du bord externe (tempe) vers le bord interne (nez)
+  const browL_top    = [70, 63, 105, 66, 107];   // bord supérieur
+  const browL_bottom = [46, 53, 52, 65, 55];     // bord inférieur (du même côté)
+
+  // Sourcil DROIT
+  const browR_top    = [336, 296, 334, 293, 300]; // bord supérieur
+  const browR_bottom = [285, 295, 282, 283, 276]; // bord inférieur
+
+  // Style de sourcil sélectionné (Naturel / Défini / Brossé)
+  const style = currentBrowStyle || 'natural';
 
   [
-    { indices: browL, name: 'browL' },
-    { indices: browR, name: 'browR' },
-  ].forEach(({ indices, name }) => {
-    const pts = indices.map(i => pt(lm, i, W, H));
+    { topIdx: browL_top, botIdx: browL_bottom, name: 'browL', side: 'left' },
+    { topIdx: browR_top, botIdx: browR_bottom, name: 'browR', side: 'right' },
+  ].forEach(({ topIdx, botIdx, name, side }) => {
+    const topPts = topIdx.map(i => pt(lm, i, W, H));
+    const botPts = botIdx.map(i => pt(lm, i, W, H));
     const tc = resetTmpCanvas(name, W, H);
 
-    // Ligne fine principale
+    // ======================================================
+    // COUCHE 1 — FORME REMPLIE
+    // On dessine le polygone fermé : top de gauche à droite,
+    // puis bottom de droite à gauche → polygone fermé
+    // ======================================================
     tc.beginPath();
-    tc.moveTo(pts[0].x, pts[0].y);
-    pts.slice(1).forEach(p => tc.lineTo(p.x, p.y));
-    tc.strokeStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.5})`;
-    tc.lineWidth = 1.5;
-    tc.lineCap = 'round';
-    tc.lineJoin = 'round';
-    tc.stroke();
+    topPts.forEach((p, i) => {
+      if (i === 0) tc.moveTo(p.x, p.y);
+      else tc.lineTo(p.x, p.y);
+    });
+    // Retour par le bas (sens inverse pour fermer correctement)
+    [...botPts].reverse().forEach(p => tc.lineTo(p.x, p.y));
+    tc.closePath();
 
-    // Halo plus large (ombre douce)
-    tc.beginPath();
-    tc.moveTo(pts[0].x, pts[0].y);
-    pts.forEach(p => tc.lineTo(p.x, p.y));
-    tc.strokeStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.2})`;
-    tc.lineWidth = 4;
+    // Densité de remplissage selon le style choisi
+    const fillOpacity = {
+      natural: m.op * 0.35,  // remplissage léger, garde un côté naturel
+      defined: m.op * 0.65,  // remplissage marqué (style pommade)
+      brushed: m.op * 0.18,  // remplissage très léger, on verra surtout les poils
+    }[style];
+
+    tc.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${fillOpacity})`;
+    tc.fill();
+
+    // ======================================================
+    // COUCHE 2 — TEXTURE DE POILS
+    // On simule des petits poils orientés : chaque poil part
+    // du bord inférieur et monte légèrement vers l'extérieur,
+    // suivant la direction naturelle des poils du sourcil.
+    // ======================================================
+    const hairCount = {
+      natural: 14,   // densité moyenne
+      defined: 10,   // peu de poils visibles (le remplissage masque)
+      brushed: 22,   // beaucoup de poils, c'est le style
+    }[style];
+
+    const hairOpacity = {
+      natural: m.op * 0.55,
+      defined: m.op * 0.4,
+      brushed: m.op * 0.75,
+    }[style];
+
+    // Direction des poils : sur sourcil gauche, les poils s'orientent
+    // de haut-droite vers bas-gauche (croissance naturelle)
+    // Sur sourcil droit : haut-gauche vers bas-droite
+    const hairAngle = side === 'left' ? -25 : 25; // degrés
+
+    tc.strokeStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${hairOpacity})`;
+    tc.lineWidth = 0.8;
     tc.lineCap = 'round';
-    tc.lineJoin = 'round';
-    tc.stroke();
+
+    // On répartit les poils le long du sourcil
+    for (let i = 0; i < hairCount; i++) {
+      const t = i / (hairCount - 1); // 0 à 1, position le long du sourcil
+
+      // Interpolation linéaire entre les points du bord supérieur
+      const segIdx = Math.min(Math.floor(t * (topPts.length - 1)), topPts.length - 2);
+      const segT = (t * (topPts.length - 1)) - segIdx;
+
+      const topX = topPts[segIdx].x + (topPts[segIdx + 1].x - topPts[segIdx].x) * segT;
+      const topY = topPts[segIdx].y + (topPts[segIdx + 1].y - topPts[segIdx].y) * segT;
+
+      const botX = botPts[segIdx].x + (botPts[segIdx + 1].x - botPts[segIdx].x) * segT;
+      const botY = botPts[segIdx].y + (botPts[segIdx + 1].y - botPts[segIdx].y) * segT;
+
+      // Hauteur du poil (~80% de l'épaisseur du sourcil à cet endroit)
+      const hairHeight = Math.hypot(topX - botX, topY - botY) * 0.85;
+
+      // Petite variation aléatoire pseudo-déterministe (basée sur i)
+      // pour que les poils ne soient pas tous identiques
+      const variation = (Math.sin(i * 7.3) + 1) * 0.5; // 0 à 1
+      const lengthMod = 0.7 + variation * 0.4; // 0.7 à 1.1
+
+      // Point de départ du poil : sur le bord inférieur, légèrement varié
+      const startX = botX + (Math.cos(i * 13.7) * 0.5);
+      const startY = botY;
+
+      // Point d'arrivée : vers le haut, avec angle de croissance naturelle
+      const angleRad = (hairAngle * Math.PI) / 180;
+      const endX = startX + Math.sin(angleRad) * hairHeight * lengthMod * 0.3;
+      const endY = startY - hairHeight * lengthMod;
+
+      tc.beginPath();
+      tc.moveTo(startX, startY);
+      tc.lineTo(endX, endY);
+      tc.stroke();
+    }
+
+    // ======================================================
+    // COUCHE 3 — APPLICATION SUR LE CANVAS PRINCIPAL
+    // Avec un blur léger qui dépend du style choisi
+    // ======================================================
+    const blurAmount = {
+      natural: 1.2,  // blur moyen pour fondu naturel
+      defined: 0.6,  // peu de blur, contours nets
+      brushed: 1.5,  // plus de blur, effet "duveteux"
+    }[style];
 
     ctx.save();
-    ctx.filter = 'blur(1.2px)';
+    ctx.filter = `blur(${blurAmount}px)`;
     ctx.drawImage(tmpCanvases[name], 0, 0);
     ctx.filter = 'none';
     ctx.restore();
