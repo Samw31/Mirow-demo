@@ -749,6 +749,15 @@ input[type=range]::-moz-range-thumb {
       </div>
 
       <div class="panel-section">
+        <div class="section-label">Style yeux</div>
+        <div class="brow-style-row" id="eyeStyleRow">
+          <button class="brow-style-btn active" data-style="natural">Naturel</button>
+          <button class="brow-style-btn" data-style="defined">Défini</button>
+          <button class="brow-style-btn" data-style="smoky">Smoky</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
         <div class="section-label">Options</div>
         <div class="toggle-row">
           <span class="toggle-label">Lissage peau</span>
@@ -872,6 +881,7 @@ let currentCat = 'lips';
 let currentColor = '#A855F7';
 let currentOp = 0.7;
 let currentBrowStyle = 'natural'; // 'natural' | 'defined' | 'brushed'
+let currentEyeStyle = 'natural';  // 'natural' | 'defined' | 'smoky'
 
 // État des 5 catégories de makeup (modifié par swatches/sliders/looks)
 let makeup = {
@@ -903,15 +913,19 @@ const statusText  = document.getElementById('statusText');
 // ============================================================
 const tmpCanvases = {
   lips:    document.createElement('canvas'),
-  eyes:    document.createElement('canvas'),
+  eyes:    document.createElement('canvas'),       // ombre à paupière
+  eyeliner:document.createElement('canvas'),       // ligne d'eyeliner
+  mascara: document.createElement('canvas'),       // zone des cils
   browL:   document.createElement('canvas'),
   browR:   document.createElement('canvas'),
 };
 const tmpContexts = {
-  lips:  tmpCanvases.lips.getContext('2d'),
-  eyes:  tmpCanvases.eyes.getContext('2d'),
-  browL: tmpCanvases.browL.getContext('2d'),
-  browR: tmpCanvases.browR.getContext('2d'),
+  lips:     tmpCanvases.lips.getContext('2d'),
+  eyes:     tmpCanvases.eyes.getContext('2d'),
+  eyeliner: tmpCanvases.eyeliner.getContext('2d'),
+  mascara:  tmpCanvases.mascara.getContext('2d'),
+  browL:    tmpCanvases.browL.getContext('2d'),
+  browR:    tmpCanvases.browR.getContext('2d'),
 };
 
 // ============================================================
@@ -1057,7 +1071,16 @@ document.getElementById('browStyleRow').addEventListener('click', (e) => {
   const btn = e.target.closest('.brow-style-btn');
   if (!btn) return;
   currentBrowStyle = btn.dataset.style;
-  document.querySelectorAll('.brow-style-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#browStyleRow .brow-style-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+});
+
+// Gestion du sélecteur de style yeux
+document.getElementById('eyeStyleRow').addEventListener('click', (e) => {
+  const btn = e.target.closest('.brow-style-btn');
+  if (!btn) return;
+  currentEyeStyle = btn.dataset.style;
+  document.querySelectorAll('#eyeStyleRow .brow-style-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 });
 
@@ -1269,31 +1292,209 @@ function applyEyes(lm, W, H) {
   if (!m || !m.c) return;
   const rgb = hexToRgb(m.c);
 
-  const tc = resetTmpCanvas('eyes', W, H);
+  // ========================================================
+  // ANATOMIE DES YEUX DANS MEDIAPIPE FACEMESH
+  // --------------------------------------------------------
+  // MediaPipe nous donne plusieurs anneaux de landmarks :
+  //  - Ras de cils supérieur (juste au-dessus de l'œil ouvert)
+  //  - Pli de paupière (la cassure naturelle)
+  //  - Sous-sourcil (entre le pli et le sourcil)
+  //
+  // En empilant ces zones, on obtient les 3 zones que les
+  // maquilleurs utilisent : paupière mobile / pli / sous-sourcil.
+  // ========================================================
 
-  // [iris, paupière haute, paupière basse] pour œil gauche et droit
-  const eyes = [
-    [pt(lm, 468, W, H), pt(lm, 159, W, H), pt(lm, 145, W, H)],
-    [pt(lm, 473, W, H), pt(lm, 386, W, H), pt(lm, 374, W, H)],
-  ];
+  // Œil GAUCHE (côté gauche du visage = côté droit du spectateur)
+  const eyeL = {
+    // Ras de cils supérieur (de l'angle interne vers l'angle externe)
+    upperLash: [33, 246, 161, 160, 159, 158, 157, 173, 133],
+    // Pli de paupière (un peu au-dessus du ras de cils)
+    crease:    [247, 30, 29, 27, 28, 56, 190],
+    // Sous-sourcil (zone haute, près du sourcil)
+    browLow:   [70, 63, 105, 66, 107],
+    // Coin interne et externe (pour les angles)
+    innerCorner: 33,
+    outerCorner: 133,
+  };
 
-  eyes.forEach(([iris, top, bot]) => {
-    const eyeH = Math.abs(top.y - bot.y) * 2.5;
-    const grad = tc.createLinearGradient(iris.x, top.y - eyeH, iris.x, bot.y + 4);
-    grad.addColorStop(0,   `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
-    grad.addColorStop(0.3, `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.55})`);
-    grad.addColorStop(0.7, `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.3})`);
-    grad.addColorStop(1,   `rgba(${rgb.r},${rgb.g},${rgb.b},0)`);
+  // Œil DROIT
+  const eyeR = {
+    upperLash: [263, 466, 388, 387, 386, 385, 384, 398, 362],
+    crease:    [467, 260, 259, 257, 258, 286, 414],
+    browLow:   [336, 296, 334, 293, 300],
+    innerCorner: 263,
+    outerCorner: 362,
+  };
 
-    tc.beginPath();
-    tc.ellipse(iris.x, iris.y - eyeH * 0.3, eyeH * 1.8, eyeH * 0.9, 0, 0, Math.PI * 2);
-    tc.fillStyle = grad;
-    tc.fill();
+  const style = currentEyeStyle || 'natural';
+
+  // Paramètres par style — densité, intensité, tailles
+  const styleParams = {
+    natural: {
+      shadowOp:    0.45,  // intensité ombre globale
+      mobileOp:    0.55,  // paupière mobile (zone la plus saturée)
+      creaseOp:    0.35,  // pli (intermédiaire)
+      browLowOp:   0.10,  // sous-sourcil (très diffus)
+      linerWidth:  1.0,   // épaisseur eyeliner en px
+      linerOp:     0.55,  // intensité eyeliner
+      linerColor:  '#1A1A1A', // eyeliner toujours sombre
+      mascaraOp:   0.35,  // intensité zone cils
+      mascaraSize: 4,     // épaisseur de la zone mascara en px
+      blurAmount:  2.5,   // blur de l'ombre (fondu naturel)
+    },
+    defined: {
+      shadowOp:    0.60,
+      mobileOp:    0.70,
+      creaseOp:    0.50,
+      browLowOp:   0.15,
+      linerWidth:  1.6,
+      linerOp:     0.85,
+      linerColor:  '#0A0A0A',
+      mascaraOp:   0.55,
+      mascaraSize: 5,
+      blurAmount:  1.8,
+    },
+    smoky: {
+      shadowOp:    0.85,
+      mobileOp:    0.90,
+      creaseOp:    0.75,
+      browLowOp:   0.30,
+      linerWidth:  2.2,
+      linerOp:     0.95,
+      linerColor:  '#000000',
+      mascaraOp:   0.75,
+      mascaraSize: 7,
+      blurAmount:  3.5, // plus de blur pour fondu enfumé
+    },
+  };
+
+  const params = styleParams[style];
+
+  // ========================================================
+  // COUCHE 1 — OMBRE À PAUPIÈRE EN 3 ZONES
+  // ========================================================
+  const tcShadow = resetTmpCanvas('eyes', W, H);
+
+  [eyeL, eyeR].forEach(eye => {
+    const lashPts   = eye.upperLash.map(i => pt(lm, i, W, H));
+    const creasePts = eye.crease.map(i => pt(lm, i, W, H));
+    const browPts   = eye.browLow.map(i => pt(lm, i, W, H));
+
+    // ZONE 1 : Paupière mobile
+    // Polygone fermé entre ras de cils et pli
+    tcShadow.beginPath();
+    lashPts.forEach((p, i) => {
+      if (i === 0) tcShadow.moveTo(p.x, p.y);
+      else tcShadow.lineTo(p.x, p.y);
+    });
+    [...creasePts].reverse().forEach(p => tcShadow.lineTo(p.x, p.y));
+    tcShadow.closePath();
+    tcShadow.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * params.mobileOp})`;
+    tcShadow.fill();
+
+    // ZONE 2 : Pli
+    // Polygone entre pli et zone basse du sourcil
+    // (pour le smoky, on saute légèrement vers le haut)
+    tcShadow.beginPath();
+    creasePts.forEach((p, i) => {
+      if (i === 0) tcShadow.moveTo(p.x, p.y);
+      else tcShadow.lineTo(p.x, p.y);
+    });
+    // Point intermédiaire entre pli et sourcil pour le pli
+    const midPts = creasePts.map((cp, i) => {
+      const bp = browPts[Math.min(i, browPts.length - 1)];
+      return { x: (cp.x + bp.x) / 2, y: (cp.y + bp.y) / 2 + (cp.y - bp.y) * 0.3 };
+    });
+    [...midPts].reverse().forEach(p => tcShadow.lineTo(p.x, p.y));
+    tcShadow.closePath();
+    tcShadow.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * params.creaseOp})`;
+    tcShadow.fill();
+
+    // ZONE 3 : Sous-sourcil (très diffuse)
+    // Pour les styles natural/defined, c'est très léger
+    // Pour smoky, ça crée le halo sombre étendu
+    tcShadow.beginPath();
+    midPts.forEach((p, i) => {
+      if (i === 0) tcShadow.moveTo(p.x, p.y);
+      else tcShadow.lineTo(p.x, p.y);
+    });
+    [...browPts].reverse().forEach(p => tcShadow.lineTo(p.x, p.y));
+    tcShadow.closePath();
+    tcShadow.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * params.browLowOp})`;
+    tcShadow.fill();
   });
 
+  // Application de l'ombre avec blur (fondu naturel)
   ctx.save();
-  ctx.filter = 'blur(3px)';
+  ctx.filter = `blur(${params.blurAmount}px)`;
   ctx.drawImage(tmpCanvases.eyes, 0, 0);
+  ctx.filter = 'none';
+  ctx.restore();
+
+  // ========================================================
+  // COUCHE 2 — EYELINER (ligne fine sur le ras de cils)
+  // ========================================================
+  const tcLiner = resetTmpCanvas('eyeliner', W, H);
+  const linerRgb = hexToRgb(params.linerColor);
+
+  [eyeL, eyeR].forEach(eye => {
+    const lashPts = eye.upperLash.map(i => pt(lm, i, W, H));
+
+    tcLiner.beginPath();
+    tcLiner.moveTo(lashPts[0].x, lashPts[0].y);
+    // Tracé fluide via courbes quadratiques entre points
+    for (let i = 1; i < lashPts.length - 1; i++) {
+      const xc = (lashPts[i].x + lashPts[i + 1].x) / 2;
+      const yc = (lashPts[i].y + lashPts[i + 1].y) / 2;
+      tcLiner.quadraticCurveTo(lashPts[i].x, lashPts[i].y, xc, yc);
+    }
+    tcLiner.lineTo(lashPts[lashPts.length - 1].x, lashPts[lashPts.length - 1].y);
+
+    tcLiner.strokeStyle = `rgba(${linerRgb.r},${linerRgb.g},${linerRgb.b},${params.linerOp})`;
+    tcLiner.lineWidth = params.linerWidth;
+    tcLiner.lineCap = 'round';
+    tcLiner.lineJoin = 'round';
+    tcLiner.stroke();
+  });
+
+  // Application avec blur très léger (l'eyeliner doit rester net)
+  ctx.save();
+  ctx.filter = 'blur(0.4px)';
+  ctx.drawImage(tmpCanvases.eyeliner, 0, 0);
+  ctx.filter = 'none';
+  ctx.restore();
+
+  // ========================================================
+  // COUCHE 3 — MASCARA (zone des cils supérieurs assombrie)
+  // ========================================================
+  const tcMascara = resetTmpCanvas('mascara', W, H);
+
+  [eyeL, eyeR].forEach(eye => {
+    const lashPts = eye.upperLash.map(i => pt(lm, i, W, H));
+
+    // On dessine une ligne épaisse juste au-dessus du ras de cils
+    // qui simule l'épaisseur des cils maquillés
+    tcMascara.beginPath();
+    tcMascara.moveTo(lashPts[0].x, lashPts[0].y - 1);
+    for (let i = 1; i < lashPts.length - 1; i++) {
+      const xc = (lashPts[i].x + lashPts[i + 1].x) / 2;
+      const yc = (lashPts[i].y + lashPts[i + 1].y) / 2 - 1;
+      tcMascara.quadraticCurveTo(lashPts[i].x, lashPts[i].y - 1, xc, yc);
+    }
+    tcMascara.lineTo(lashPts[lashPts.length - 1].x, lashPts[lashPts.length - 1].y - 1);
+
+    // Couleur sombre (toujours noire pour le mascara, peu importe l'ombre)
+    tcMascara.strokeStyle = `rgba(15, 15, 15, ${params.mascaraOp})`;
+    tcMascara.lineWidth = params.mascaraSize;
+    tcMascara.lineCap = 'round';
+    tcMascara.lineJoin = 'round';
+    tcMascara.stroke();
+  });
+
+  // Application avec blur moyen (effet "cils flous épaissis")
+  ctx.save();
+  ctx.filter = 'blur(2px)';
+  ctx.drawImage(tmpCanvases.mascara, 0, 0);
   ctx.filter = 'none';
   ctx.restore();
 }
