@@ -53,6 +53,14 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Reset global des boutons — évite le rendu natif iOS/Safari */
+button {
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  font-family: inherit;
+}
+
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--void);
@@ -281,13 +289,21 @@ body {
   border-left: 0.5px solid var(--border);
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
   max-height: calc(100vh - 56px);
+  overflow: hidden; /* le scroll se fait sur le wrapper interne */
 }
 
-.panel::-webkit-scrollbar { width: 4px; }
-.panel::-webkit-scrollbar-track { background: transparent; }
-.panel::-webkit-scrollbar-thumb {
+/* Zone scrollable interne — contient toutes les sections sauf le footer */
+.panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-scroll::-webkit-scrollbar { width: 4px; }
+.panel-scroll::-webkit-scrollbar-track { background: transparent; }
+.panel-scroll::-webkit-scrollbar-thumb {
   background: rgba(168, 85, 247, 0.2);
   border-radius: 2px;
 }
@@ -487,6 +503,10 @@ input[type=range]::-moz-range-thumb {
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
+  /* Reset des styles natifs iOS / Safari pour éviter le rendu par défaut */
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .brow-style-btn:hover {
   border-color: rgba(168, 85, 247, 0.3);
@@ -593,18 +613,22 @@ input[type=range]::-moz-range-thumb {
 }
 .add-btn:hover { transform: translateY(-1px); }
 
-/* Footer */
+/* Footer — strictement dans le panel, jamais en overflow */
 .footer-bar {
-  padding: 12px 20px;
+  padding: 14px 20px;
   text-align: center;
   margin-top: auto;
   background: var(--void);
+  border-top: 0.5px solid var(--border);
+  flex-shrink: 0;
+  width: 100%;
 }
 .footer-txt {
   font-size: 9px;
   color: var(--text-tertiary);
   letter-spacing: 0.12em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 .footer-txt .accent {
   background: var(--gradient-neon);
@@ -671,6 +695,9 @@ input[type=range]::-moz-range-thumb {
     <!-- Panel de contrôles -->
     <div class="panel">
 
+      <!-- Zone scrollable contenant toutes les sections -->
+      <div class="panel-scroll">
+
       <div class="panel-section">
         <div class="section-label">Catégorie</div>
         <div class="cat-row" id="catRow">
@@ -725,6 +752,9 @@ input[type=range]::-moz-range-thumb {
         <div id="productCard"></div>
       </div>
 
+      </div><!-- /.panel-scroll -->
+
+      <!-- Footer toujours visible en bas du panel -->
       <div class="footer-bar">
         <div class="footer-txt">Propulsé par <span class="accent">Mirow AR</span></div>
       </div>
