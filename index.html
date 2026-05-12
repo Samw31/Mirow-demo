@@ -126,6 +126,21 @@ body {
   font-style: italic;
 }
 
+/* Badge plan (visible uniquement pour les marques non-Mirow) */
+.plan-badge {
+  display: inline-block;
+  margin-left: 14px;
+  padding: 4px 10px;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-radius: 99px;
+  background: rgba(168, 85, 247, 0.12);
+  border: 0.5px solid rgba(168, 85, 247, 0.3);
+  color: var(--electric-purple);
+}
+
 .status-wrap { display: flex; align-items: center; gap: 8px; }
 .status-dot {
   width: 6px; height: 6px;
@@ -983,7 +998,8 @@ input[type=range]::-moz-range-thumb {
 
   <!-- TOPBAR -->
   <div class="topbar">
-    <div class="logo">mir<span class="accent">o</span>w</div>
+    <div class="logo" id="brandLogo">mir<span class="accent">o</span>w</div>
+    <div class="plan-badge" id="planBadge" style="display:none;"></div>
 
     <!-- Indicateur de tone matching (visible une fois détecté) -->
     <div class="tone-indicator" id="toneIndicator">
@@ -1118,7 +1134,7 @@ input[type=range]::-moz-range-thumb {
 
       <!-- Footer toujours visible en bas du panel -->
       <div class="footer-bar">
-        <div class="footer-txt">Propulsé par <span class="accent">Mirow AR</span></div>
+        <div class="footer-txt" id="brandFooter">Propulsé par <span class="accent">Mirow AR</span></div>
       </div>
 
     </div>
@@ -1164,9 +1180,275 @@ input[type=range]::-moz-range-thumb {
 
 <script>
 // ============================================================
+// BRAND CONFIG SYSTEM — White-label multi-tenant
+// ============================================================
+// Chaque marque cliente a sa propre configuration qui override
+// la config Mirow par défaut. Chargement via URL param ?brand=xxx
+// Ex: mirow-demo.vercel.app?brand=test → charge BRAND_REGISTRY.test
+// ============================================================
+
+/**
+ * Presets de features par plan tarifaire.
+ * Définit ce qui est disponible selon le niveau d'abonnement.
+ */
+const PLAN_PRESETS = {
+  starter: {
+    // Plan Starter — 590€/mois
+    maxShades: 30,
+    showCapture: true,
+    showLooks: true,
+    showToneMatching: true,
+    showStyleSelectors: true,  // mat/glossy/metallic + sourcils/yeux
+    showLookCards: true,
+    showAnalytics: false,
+    hidePoweredBy: false,       // branding Mirow visible
+    showLanguageSwitcher: false,
+  },
+  growth: {
+    // Plan Growth — 990€/mois
+    maxShades: 100,
+    showCapture: true,
+    showLooks: true,
+    showToneMatching: true,
+    showStyleSelectors: true,
+    showLookCards: true,
+    showAnalytics: true,
+    hidePoweredBy: false,
+    showLanguageSwitcher: false,
+  },
+  premium: {
+    // Plan Premium — 1890€/mois
+    maxShades: 999,             // illimité
+    showCapture: true,
+    showLooks: true,
+    showToneMatching: true,
+    showStyleSelectors: true,
+    showLookCards: true,
+    showAnalytics: true,
+    hidePoweredBy: true,        // pas de "Powered by Mirow"
+    showLanguageSwitcher: true,
+  },
+};
+
+/**
+ * Registre de toutes les marques connues.
+ * En production, ce serait chargé depuis une API.
+ */
+const BRAND_REGISTRY = {
+  // Config Mirow par défaut (la démo actuelle)
+  mirow: {
+    plan: 'premium',  // pour la démo, on a tout
+    identity: {
+      name: 'Mirow',
+      logo: { type: 'text', value: 'mirow', accentChar: 'o' },
+      tagline: 'Try it. Own it. Wear it.',
+      website: 'https://mirowia.com',
+    },
+    theme: {
+      primary: '#A855F7',
+      accent:  '#EC4899',
+      void:    '#09090F',
+      surface: '#131318',
+      cream:   '#F0ECE6',
+      gradient: 'linear-gradient(135deg, #A855F7 0%, #EC4899 100%)',
+    },
+    catalog: null,    // null = utilise PALETTES par défaut
+    looks: null,      // null = utilise LOOKS par défaut
+  },
+
+  // Marque générique de démo (Test Brand)
+  test: {
+    plan: 'growth',
+    identity: {
+      name: 'Test Brand',
+      logo: { type: 'text', value: 'test', accentChar: 't' },
+      tagline: 'Beauté nouvelle génération',
+      website: 'https://test-brand.com',
+    },
+    theme: {
+      // Palette terre/champagne pour différencier visuellement
+      primary: '#C9904A',       // ambré chaud
+      accent:  '#8B4789',       // violet doux
+      void:    '#1A1410',       // brun très sombre (au lieu du noir)
+      surface: '#231C16',
+      cream:   '#F5EFE6',
+      gradient: 'linear-gradient(135deg, #C9904A 0%, #8B4789 100%)',
+    },
+    // Catalogue dédié Test Brand (12 teintes lèvres seulement pour cette démo)
+    catalog: {
+      lips: [
+        { c:'#B85C5C', n:'Rouge Tendre',    p:'Velvet Kiss',         b:'Test Brand', pr:'22,00 €' },
+        { c:'#D4936E', n:'Nude Ambré',      p:'Honey Glow',          b:'Test Brand', pr:'22,00 €' },
+        { c:'#8B3A4F', n:'Rouge Profond',   p:'Bordeaux Lumière',    b:'Test Brand', pr:'24,00 €' },
+        { c:'#E8A593', n:'Corail Doux',     p:'Coral Whisper',       b:'Test Brand', pr:'22,00 €' },
+        { c:'#A85060', n:'Framboise Mate',  p:'Berry Matte',         b:'Test Brand', pr:'24,00 €' },
+        { c:'#C49A7A', n:'Caramel Nude',    p:'Caramel Bare',        b:'Test Brand', pr:'22,00 €' },
+        { c:'#7B2D3D', n:'Bordeaux',        p:'Midnight Wine',       b:'Test Brand', pr:'26,00 €' },
+        { c:'#E07B7B', n:'Rose Vif',        p:'Pink Statement',      b:'Test Brand', pr:'22,00 €' },
+      ],
+      // Les autres catégories utilisent les défauts Mirow (catalogue partagé)
+      eyes: null,
+      blush: null,
+      brows: null,
+      highlight: null,
+    },
+    looks: null,
+  },
+};
+
+/**
+ * Récupère la marque depuis l'URL (?brand=xxx) ou retourne 'mirow'.
+ * Sécurité : valide que la marque existe dans le registre.
+ */
+function getBrandFromURL() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const brand = params.get('brand');
+    if (brand && BRAND_REGISTRY[brand]) return brand;
+  } catch (e) {
+    console.warn('[Mirow] URL parsing failed, fallback to default brand');
+  }
+  return 'mirow';
+}
+
+// Marque active pour cette session
+const ACTIVE_BRAND_ID = getBrandFromURL();
+const ACTIVE_BRAND = BRAND_REGISTRY[ACTIVE_BRAND_ID];
+const ACTIVE_PLAN = PLAN_PRESETS[ACTIVE_BRAND.plan] || PLAN_PRESETS.starter;
+
+console.log(`[Mirow] Active brand: ${ACTIVE_BRAND.identity.name} (plan: ${ACTIVE_BRAND.plan})`);
+
+/**
+ * Applique le thème de la marque aux CSS variables du :root.
+ * Override les couleurs Mirow par défaut sans toucher au CSS source.
+ */
+function applyBrandTheme() {
+  const theme = ACTIVE_BRAND.theme;
+  const root = document.documentElement.style;
+  root.setProperty('--electric-purple', theme.primary);
+  root.setProperty('--hot-pink',        theme.accent);
+  root.setProperty('--void',            theme.void);
+  root.setProperty('--surface',         theme.surface);
+  // Surface secondaire dérivée (légèrement plus claire)
+  root.setProperty('--surface-2',       lightenColor(theme.surface, 8));
+  root.setProperty('--cream',           theme.cream);
+  root.setProperty('--gradient-neon',   theme.gradient);
+}
+
+/**
+ * Helper pour éclaircir une couleur hex de quelques %.
+ * Utilisé pour dériver surface-2 depuis surface.
+ */
+function lightenColor(hex, amount) {
+  const num = parseInt(hex.replace('#', ''), 16);
+  const r = Math.min(255, ((num >> 16) & 0xff) + amount);
+  const g = Math.min(255, ((num >> 8)  & 0xff) + amount);
+  const b = Math.min(255, (num & 0xff)         + amount);
+  return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
+}
+
+// Application immédiate du thème (avant tout rendu)
+applyBrandTheme();
+
+/**
+ * Applique l'identité de la marque au DOM (logo, footer, features).
+ * Appelée après que le DOM soit prêt.
+ */
+function applyBrandIdentity() {
+  // 1. LOGO — remplace "mirow" par le logo de la marque
+  const logoEl = document.getElementById('brandLogo');
+  if (logoEl) {
+    const logo = ACTIVE_BRAND.identity.logo;
+    if (logo.type === 'text') {
+      // Logo texte : la lettre "accentChar" reçoit le gradient
+      const word = logo.value;
+      const accentIdx = word.indexOf(logo.accentChar);
+      if (accentIdx >= 0) {
+        logoEl.innerHTML =
+          word.substring(0, accentIdx) +
+          '<span class="accent">' + word.charAt(accentIdx) + '</span>' +
+          word.substring(accentIdx + 1);
+      } else {
+        logoEl.textContent = word;
+      }
+    } else if (logo.type === 'image') {
+      // Logo image (URL) — pour usage futur
+      logoEl.innerHTML = `<img src="${logo.value}" alt="${ACTIVE_BRAND.identity.name}" style="height:24px;">`;
+    }
+  }
+
+  // 2. FOOTER — gère le branding "Powered by Mirow"
+  const footerEl = document.getElementById('brandFooter');
+  if (footerEl) {
+    if (ACTIVE_PLAN.hidePoweredBy) {
+      // Plan Premium : cache complètement le footer Mirow
+      footerEl.style.display = 'none';
+    } else {
+      // Sinon : on garde "Propulsé par Mirow AR"
+      // (par souci de cohérence, le logo Mirow ne change PAS,
+      //  même si la marque est différente — c'est notre branding)
+      footerEl.innerHTML = 'Propulsé par <span class="accent">Mirow AR</span>';
+    }
+  }
+
+  // 3. TITRE DE PAGE
+  if (ACTIVE_BRAND_ID !== 'mirow') {
+    document.title = `${ACTIVE_BRAND.identity.name} · Essayage virtuel`;
+  }
+
+  // 4. BADGE PLAN — visible uniquement pour les marques (pas pour Mirow)
+  const planBadge = document.getElementById('planBadge');
+  if (planBadge && ACTIVE_BRAND_ID !== 'mirow') {
+    planBadge.textContent = ACTIVE_BRAND.plan; // ex: "growth"
+    planBadge.style.display = 'inline-block';
+  }
+}
+
+/**
+ * Cache les éléments UI désactivés par le plan de la marque.
+ * Appelée après que les renderers d'UI soient prêts.
+ */
+function applyPlanFeatures() {
+  // Si la marque n'a pas accès aux looks → on cache la section
+  if (!ACTIVE_PLAN.showLookCards) {
+    document.querySelectorAll('.panel-section').forEach(section => {
+      const label = section.querySelector('.section-label');
+      if (label && label.textContent.toLowerCase().includes('look')) {
+        section.style.display = 'none';
+      }
+    });
+  }
+
+  // Si pas de sélecteurs de style (mat/glossy/metallic, etc.)
+  if (!ACTIVE_PLAN.showStyleSelectors) {
+    ['#lipStyleRow', '#browStyleRow', '#eyeStyleRow'].forEach(sel => {
+      const row = document.querySelector(sel);
+      if (row && row.closest('.panel-section')) {
+        row.closest('.panel-section').style.display = 'none';
+      }
+    });
+  }
+
+  // Si pas de tone matching → on cache l'indicateur dans la topbar
+  if (!ACTIVE_PLAN.showToneMatching) {
+    const toneIndicator = document.getElementById('toneIndicator');
+    if (toneIndicator) toneIndicator.style.display = 'none';
+  }
+
+  // Si pas de capture photo → on cache le bouton (jamais affiché)
+  if (!ACTIVE_PLAN.showCapture) {
+    const btn = document.getElementById('captureBtn');
+    if (btn) btn.style.display = 'none !important';
+  }
+}
+
+// ============================================================
 // CONFIG — palettes et looks (modifiable par marque)
 // ============================================================
-const PALETTES = {
+// DEFAULT_PALETTES = catalogue Mirow par défaut.
+// La constante PALETTES finale est construite plus bas en mergeant
+// DEFAULT_PALETTES avec ACTIVE_BRAND.catalog (si défini).
+const DEFAULT_PALETTES = {
   lips: [
     { c:'#A855F7', n:'Rose Poudré',   p:'Rouge Velours',     b:"L'Oréal",            pr:'14,90 €' },
     { c:'#E8735A', n:'Corail Vif',    p:'Corail Passion',    b:'NYX',                pr:'9,90 €'  },
@@ -1220,6 +1502,32 @@ const PALETTES = {
     { c:'#FFEEDD', n:'Ivoire Satin',  p:'Soft Focus',        b:'Laura Mercier',      pr:'32,00 €' },
   ],
 };
+
+/**
+ * PALETTES finales : merge DEFAULT_PALETTES avec ACTIVE_BRAND.catalog,
+ * puis applique la limite de teintes du plan (maxShades).
+ *
+ * Logique :
+ *  - Si la marque a défini un catalogue pour une catégorie → on l'utilise
+ *  - Sinon → on garde le catalogue Mirow par défaut
+ *  - Dans tous les cas, on plafonne au maxShades du plan
+ */
+const PALETTES = (() => {
+  const merged = {};
+  const brandCatalog = ACTIVE_BRAND.catalog || {};
+  const maxShades = ACTIVE_PLAN.maxShades;
+
+  for (const category of ['lips', 'eyes', 'blush', 'brows', 'highlight']) {
+    const brandPalette = brandCatalog[category];
+    // Si la marque a un catalogue pour cette catégorie, on l'utilise
+    // Sinon fallback sur DEFAULT_PALETTES
+    const source = (brandPalette && brandPalette.length > 0) ? brandPalette : DEFAULT_PALETTES[category];
+    // Application de la limite de teintes selon le plan
+    merged[category] = source.slice(0, maxShades);
+  }
+
+  return merged;
+})();
 
 // Looks pré-configurés (combos de teintes)
 const LOOKS = [
@@ -2819,6 +3127,10 @@ document.addEventListener('keydown', (e) => {
 renderSwatches();
 renderLooks();
 updateProduct();
+
+// Application de l'identité de marque et features du plan
+applyBrandIdentity();
+applyPlanFeatures();
 </script>
 </body>
 </html>
