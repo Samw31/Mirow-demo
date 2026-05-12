@@ -358,6 +358,7 @@ body {
   background: rgba(168, 85, 247, 0.1);
 }
 
+
 /* ============================================================
    PANEL DROITE — contrôles makeup
    ============================================================ */
@@ -728,6 +729,252 @@ input[type=range]::-moz-range-thumb {
   .cam-area { min-height: 320px; height: 50vh; }
   .swatch-grid { grid-template-columns: repeat(8, 1fr); }
 }
+
+/* ============================================================
+   BOUTON CAPTURE PHOTO — flottant en bas de la zone caméra
+   ============================================================ */
+.capture-btn {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  border: 2.5px solid rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  z-index: 15;
+  display: none; /* affiché uniquement quand caméra active */
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: transform 0.15s, background 0.2s, box-shadow 0.2s;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+.capture-btn.show { display: flex; }
+.capture-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  box-shadow: 0 4px 24px rgba(168, 85, 247, 0.4);
+}
+.capture-btn:active {
+  transform: translateX(-50%) scale(0.92);
+}
+.capture-btn-inner {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--gradient-neon);
+  display: block;
+  transition: transform 0.15s;
+}
+.capture-btn.flashing .capture-btn-inner {
+  background: #fff;
+}
+
+/* Flash blanc pendant la capture */
+.capture-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 18;
+  transition: opacity 0.1s;
+}
+.capture-flash.active {
+  opacity: 0.9;
+  transition: opacity 0.05s;
+}
+
+/* ============================================================
+   MODALE PHOTO
+   ============================================================ */
+.photo-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.photo-modal.show { display: flex; }
+
+.photo-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(9, 9, 15, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: fadeIn 0.25s ease-out;
+}
+
+.photo-modal-content {
+  position: relative;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 20px;
+  padding: 24px;
+  max-width: 480px;
+  width: 100%;
+  max-height: 92vh;
+  overflow-y: auto;
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.photo-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(240, 236, 230, 0.08);
+  border: none;
+  color: var(--cream);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  padding: 0;
+  z-index: 2;
+}
+.photo-modal-close:hover {
+  background: rgba(240, 236, 230, 0.15);
+}
+
+.photo-preview-wrap {
+  background: var(--void);
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 18px;
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.photo-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.photo-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.photo-action-btn {
+  width: 100%;
+  padding: 13px 20px;
+  border: 0.5px solid var(--border);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--cream);
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.photo-action-btn:hover {
+  border-color: rgba(168, 85, 247, 0.4);
+  color: var(--electric-purple);
+}
+.photo-action-btn span {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.photo-action-primary {
+  background: var(--gradient-neon);
+  border-color: transparent;
+  color: #fff;
+}
+.photo-action-primary:hover {
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(168, 85, 247, 0.35);
+}
+
+.photo-action-secondary {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.photo-modal-footer {
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+}
+.accent-text {
+  background: var(--gradient-neon);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 500;
+}
+
+/* Toast de feedback (téléchargé, copié, etc.) */
+.toast {
+  position: fixed;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--surface);
+  color: var(--cream);
+  padding: 12px 20px;
+  border-radius: 99px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  border: 0.5px solid rgba(168, 85, 247, 0.3);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s, transform 0.3s;
+  z-index: 200;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+@media (max-width: 640px) {
+  .capture-btn {
+    bottom: 20px;
+    width: 60px;
+    height: 60px;
+  }
+  .capture-btn-inner { width: 46px; height: 46px; }
+  .photo-modal-content { padding: 18px; border-radius: 16px; }
+}
 </style>
 </head>
 
@@ -761,6 +1008,9 @@ input[type=range]::-moz-range-thumb {
       <video id="video" autoplay muted playsinline></video>
       <canvas id="outputCanvas"></canvas>
 
+      <!-- Flash blanc pendant la capture -->
+      <div class="capture-flash" id="captureFlash"></div>
+
       <!-- Overlay d'accueil (pré-démarrage) -->
       <div class="cam-overlay" id="camOverlay">
         <div class="cam-frame"></div>
@@ -775,6 +1025,11 @@ input[type=range]::-moz-range-thumb {
           <button class="retry-btn" id="retryBtn">Réessayer</button>
         </div>
       </div>
+
+      <!-- Bouton flottant de capture (caché tant que caméra pas active) -->
+      <button class="capture-btn" id="captureBtn" aria-label="Prendre une photo">
+        <span class="capture-btn-inner"></span>
+      </button>
     </div>
 
     <!-- Panel de contrôles -->
@@ -869,6 +1124,39 @@ input[type=range]::-moz-range-thumb {
     </div>
   </div>
 </div>
+
+<!-- ============================================================
+     MODALE CAPTURE PHOTO
+     ============================================================ -->
+<div class="photo-modal" id="photoModal">
+  <div class="photo-modal-backdrop" id="photoModalBackdrop"></div>
+  <div class="photo-modal-content">
+    <button class="photo-modal-close" id="photoModalClose" aria-label="Fermer">×</button>
+
+    <div class="photo-preview-wrap">
+      <img class="photo-preview" id="photoPreview" alt="Votre essayage Mirow">
+    </div>
+
+    <div class="photo-modal-actions">
+      <button class="photo-action-btn photo-action-primary" id="photoDownload">
+        <span>↓</span> Télécharger
+      </button>
+      <button class="photo-action-btn" id="photoShare">
+        <span>↗</span> Partager
+      </button>
+      <button class="photo-action-btn photo-action-secondary" id="photoRetake">
+        ↻ Recommencer
+      </button>
+    </div>
+
+    <div class="photo-modal-footer">
+      <span>Capturé avec <span class="accent-text">Mirow AR</span></span>
+    </div>
+  </div>
+</div>
+
+<!-- Toast de feedback global -->
+<div class="toast" id="toast"></div>
 
 <!-- Librairies MediaPipe (chargées en différé pour ne pas bloquer le rendu initial) -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
@@ -1280,6 +1568,8 @@ async function startCamera() {
     statusDot.classList.add('on');
     statusText.textContent = 'Détection active';
     initFaceMesh();
+    // Afficher le bouton capture (la cam\u00e9ra est maintenant active)
+    if (typeof showCaptureButton === 'function') showCaptureButton();
   } catch (e) {
     showCameraError(e);
   }
@@ -2323,6 +2613,206 @@ startBtn.addEventListener('click', startCamera);
 retryBtn.addEventListener('click', () => {
   resetCameraOverlay();
   startCamera();
+});
+
+// ============================================================
+// CAPTURE PHOTO + PARTAGE
+// ============================================================
+// Composition vidéo + maquillage AR → image PNG/JPG
+// Actions : télécharger, partager (Web Share API), recommencer
+// ============================================================
+
+const captureBtn      = document.getElementById('captureBtn');
+const captureFlash    = document.getElementById('captureFlash');
+const photoModal      = document.getElementById('photoModal');
+const photoModalBg    = document.getElementById('photoModalBackdrop');
+const photoModalClose = document.getElementById('photoModalClose');
+const photoPreview    = document.getElementById('photoPreview');
+const photoDownload   = document.getElementById('photoDownload');
+const photoShare      = document.getElementById('photoShare');
+const photoRetake     = document.getElementById('photoRetake');
+const toastEl         = document.getElementById('toast');
+
+let lastCaptureBlob = null;
+let lastCaptureDataUrl = null;
+
+/**
+ * Affiche le bouton capture quand la caméra démarre.
+ * Appelé directement depuis startCamera() après init MediaPipe.
+ */
+function showCaptureButton() {
+  if (captureBtn) captureBtn.classList.add('show');
+}
+
+/**
+ * Capture la composition vidéo + canvas overlay en un fichier image.
+ * Retourne une Promise qui resolve avec un Blob.
+ */
+async function captureComposite() {
+  const W = video.videoWidth || 640;
+  const H = video.videoHeight || 480;
+
+  // Canvas de composition (jamais affiché, juste pour l'export)
+  const compositeCanvas = document.createElement('canvas');
+  compositeCanvas.width = W;
+  compositeCanvas.height = H;
+  const cctx = compositeCanvas.getContext('2d');
+
+  // 1. Dessiner la vidéo (avec miroir pour cohérence visuelle avec l'aperçu)
+  cctx.save();
+  cctx.translate(W, 0);
+  cctx.scale(-1, 1); // miroir horizontal
+  cctx.drawImage(video, 0, 0, W, H);
+  cctx.restore();
+
+  // 2. Dessiner le canvas de maquillage AR par-dessus
+  cctx.save();
+  cctx.translate(W, 0);
+  cctx.scale(-1, 1);
+  cctx.drawImage(canvas, 0, 0, W, H);
+  cctx.restore();
+
+  // 3. Ajouter un watermark Mirow discret en bas à droite
+  cctx.save();
+  cctx.font = '500 16px Inter, sans-serif';
+  cctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  cctx.textAlign = 'right';
+  cctx.textBaseline = 'bottom';
+  cctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+  cctx.shadowBlur = 4;
+  cctx.fillText('mirow', W - 18, H - 18);
+  cctx.restore();
+
+  // 4. Conversion en Blob (JPEG plus léger que PNG pour partage)
+  return new Promise((resolve) => {
+    compositeCanvas.toBlob(
+      (blob) => resolve(blob),
+      'image/jpeg',
+      0.92  // qualité 92% (bon compromis taille / qualité)
+    );
+  });
+}
+
+/**
+ * Déclenche le flash visuel + capture
+ */
+async function triggerCapture() {
+  // Flash visuel
+  captureFlash.classList.add('active');
+  captureBtn.classList.add('flashing');
+  setTimeout(() => {
+    captureFlash.classList.remove('active');
+    captureBtn.classList.remove('flashing');
+  }, 150);
+
+  try {
+    const blob = await captureComposite();
+    if (!blob) {
+      showToast('Capture échouée');
+      return;
+    }
+
+    lastCaptureBlob = blob;
+    lastCaptureDataUrl = URL.createObjectURL(blob);
+    photoPreview.src = lastCaptureDataUrl;
+    photoModal.classList.add('show');
+  } catch (err) {
+    console.error('[Mirow] Capture error:', err);
+    showToast('Erreur de capture');
+  }
+}
+
+/**
+ * Téléchargement de la photo
+ */
+function downloadPhoto() {
+  if (!lastCaptureDataUrl) return;
+  const link = document.createElement('a');
+  link.href = lastCaptureDataUrl;
+  link.download = `mirow-${Date.now()}.jpg`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  showToast('Photo téléchargée');
+}
+
+/**
+ * Partage via Web Share API (iOS / Android natifs) ou fallback
+ */
+async function sharePhoto() {
+  if (!lastCaptureBlob) return;
+
+  const file = new File([lastCaptureBlob], `mirow-${Date.now()}.jpg`, {
+    type: 'image/jpeg',
+  });
+
+  // Vérification du support natif (mobile principalement)
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: 'Mon essayage Mirow',
+        text: 'Try it. Own it. Wear it. ✨',
+      });
+      showToast('Partagé !');
+    } catch (err) {
+      // L'utilisateur a annulé, ou erreur
+      if (err.name !== 'AbortError') {
+        console.warn('[Mirow] Share failed:', err);
+        showToast('Partage annulé');
+      }
+    }
+  } else {
+    // Fallback desktop : copier l'image dans le presse-papier
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/jpeg': lastCaptureBlob }),
+      ]);
+      showToast('Image copiée dans le presse-papier');
+    } catch (err) {
+      // Fallback ultime : on download la photo
+      downloadPhoto();
+    }
+  }
+}
+
+/**
+ * Ferme la modale et libère la mémoire
+ */
+function closePhotoModal() {
+  photoModal.classList.remove('show');
+  if (lastCaptureDataUrl) {
+    URL.revokeObjectURL(lastCaptureDataUrl);
+    lastCaptureDataUrl = null;
+  }
+  lastCaptureBlob = null;
+}
+
+/**
+ * Toast de feedback (1.8 sec)
+ */
+function showToast(message) {
+  toastEl.textContent = message;
+  toastEl.classList.add('show');
+  clearTimeout(showToast._timeout);
+  showToast._timeout = setTimeout(() => {
+    toastEl.classList.remove('show');
+  }, 1800);
+}
+
+// Branchement des événements
+captureBtn.addEventListener('click', triggerCapture);
+photoModalClose.addEventListener('click', closePhotoModal);
+photoModalBg.addEventListener('click', closePhotoModal);
+photoDownload.addEventListener('click', downloadPhoto);
+photoShare.addEventListener('click', sharePhoto);
+photoRetake.addEventListener('click', closePhotoModal);
+
+// Touche Escape pour fermer la modale
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && photoModal.classList.contains('show')) {
+    closePhotoModal();
+  }
 });
 
 // Premier rendu de l'UI (panel)
