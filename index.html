@@ -2255,12 +2255,18 @@ function applyLookToMakeup(lookId) {
  * On utilise ctx.save/clip/restore pour limiter le rendu à chaque moitié.
  */
 function renderCompareMode(lm, W, H) {
-  const sliderX = W * compareSliderPos;
+  // ATTENTION : le canvas est miroité via CSS (scaleX -1).
+  // Ce que l'utilisateur voit "à gauche" correspond au côté DROIT du canvas.
+  // Donc pour afficher le Look A à gauche de l'utilisateur, on doit clipper
+  // sur la moitié DROITE du canvas (et vice-versa pour le Look B).
+  // Le slider visuel est à position `compareSliderPos` (0=gauche utilisateur,
+  // 1=droite utilisateur). Sa position dans le canvas = (1 - compareSliderPos).
+  const sliderXCanvas = W * (1 - compareSliderPos);
 
-  // 1. RENDU CÔTÉ GAUCHE = Look A
+  // 1. LOOK A → côté gauche pour l'utilisateur = moitié DROITE du canvas
   ctx.save();
   ctx.beginPath();
-  ctx.rect(0, 0, sliderX, H);
+  ctx.rect(sliderXCanvas, 0, W - sliderXCanvas, H);
   ctx.clip();
   applyLookToMakeup(compareLookA);
   applyBlush(lm, W, H);
@@ -2270,10 +2276,10 @@ function renderCompareMode(lm, W, H) {
   applyLips(lm, W, H);
   ctx.restore();
 
-  // 2. RENDU CÔTÉ DROIT = Look B
+  // 2. LOOK B → côté droit pour l'utilisateur = moitié GAUCHE du canvas
   ctx.save();
   ctx.beginPath();
-  ctx.rect(sliderX, 0, W - sliderX, H);
+  ctx.rect(0, 0, sliderXCanvas, H);
   ctx.clip();
   applyLookToMakeup(compareLookB);
   applyBlush(lm, W, H);
