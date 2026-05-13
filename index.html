@@ -2385,14 +2385,11 @@ function setupCompareSliderDrag() {
     const camArea = document.querySelector('.cam-area');
     if (!camArea) return;
     const rect = camArea.getBoundingClientRect();
-    // Position relative dans la zone caméra (0 à 1)
-    // ATTENTION : le canvas est en miroir (transform scaleX(-1)), donc on
-    // inverse la position pour que le slider se déplace dans le bon sens
-    // du point de vue utilisateur
-    const rawPos = (clientX - rect.left) / rect.width;
-    compareSliderPos = Math.max(0.05, Math.min(0.95, 1 - rawPos));
-    // Mettre à jour la position visuelle du slider (inversée car miroir)
-    slider.style.left = (rawPos * 100) + '%';
+    // Position visuelle : 0 = bord gauche écran, 1 = bord droit écran
+    const visualPos = Math.max(0.05, Math.min(0.95, (clientX - rect.left) / rect.width));
+    compareSliderPos = visualPos;
+    // Le slider HTML suit directement cette position visuelle
+    slider.style.left = (visualPos * 100) + '%';
   };
 
   const endDrag = () => { dragging = false; };
