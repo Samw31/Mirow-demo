@@ -375,6 +375,169 @@ body {
 
 
 /* ============================================================
+   FOCUS PRODUCT MODE — UX simplifiée pour pages produit marque
+   ============================================================ */
+
+/* Section produit focus (en haut du panel) */
+.focus-product-section {
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.08) 0%, rgba(236, 72, 153, 0.05) 100%);
+  border-bottom: 0.5px solid rgba(168, 85, 247, 0.2) !important;
+}
+
+.focus-hero-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.focus-hero-top {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.focus-hero-swatch {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  flex-shrink: 0;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4),
+              inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  position: relative;
+}
+.focus-hero-swatch::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 16px;
+  background: var(--gradient-neon);
+  z-index: -1;
+  opacity: 0.6;
+}
+
+.focus-hero-info {
+  flex: 1;
+  min-width: 0;
+}
+.focus-hero-name {
+  font-family: Georgia, serif;
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  color: var(--cream);
+  line-height: 1.2;
+  margin-bottom: 4px;
+}
+.focus-hero-brand {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.focus-hero-shade {
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
+.focus-hero-price {
+  font-family: Georgia, serif;
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  color: var(--cream);
+}
+
+/* Bouton "Ajouter au panier" — proéminent */
+.focus-add-to-cart-btn {
+  width: 100%;
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--gradient-neon);
+  border: none;
+  border-radius: 99px;
+  color: #fff;
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 8px 24px rgba(168, 85, 247, 0.35);
+}
+.focus-add-to-cart-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px rgba(168, 85, 247, 0.5);
+}
+.focus-add-to-cart-btn:active { transform: translateY(0); }
+
+/* Badge sur la swatch focus (étoile gradient) */
+.swatch.focus-shade::before {
+  content: '';
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--gradient-neon);
+  border: 2px solid var(--surface);
+  z-index: 2;
+}
+.swatch.focus-shade {
+  position: relative;
+}
+
+/* Toast d'ajout au panier (en bas de l'écran) */
+.add-to-cart-toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%) translateY(120%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 22px;
+  background: rgba(9, 9, 15, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 0.5px solid rgba(74, 222, 128, 0.3);
+  border-radius: 99px;
+  color: #4ADE80;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  z-index: 200;
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: none;
+}
+.add-to-cart-toast.show {
+  transform: translateX(-50%) translateY(0);
+}
+.toast-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.toast-subtitle {
+  font-size: 12px;
+  color: var(--cream);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-top: 2px;
+}
+
+@media (max-width: 640px) {
+  .focus-hero-name { font-size: 15px; }
+  .focus-hero-price { font-size: 20px; }
+  .add-to-cart-toast { bottom: 16px; padding: 12px 18px; }
+}
+
+/* ============================================================
    MODE COMPARAISON — slider draggable + sélecteurs Look A/B
    ============================================================ */
 
@@ -1759,11 +1922,79 @@ const PALETTES = (() => {
     // Sinon fallback sur DEFAULT_PALETTES
     const source = (brandPalette && brandPalette.length > 0) ? brandPalette : DEFAULT_PALETTES[category];
     // Application de la limite de teintes selon le plan
-    merged[category] = source.slice(0, maxShades);
+    // + génération automatique d'un ID stable pour chaque produit
+    // Format : "category-index-slug" (ex: "lips-0-rouge-velours")
+    merged[category] = source.slice(0, maxShades).map((item, idx) => {
+      // Si l'item a déjà un id explicite, on le garde
+      if (item.id) return item;
+      // Sinon on en génère un depuis le nom produit
+      const slug = (item.p || item.n || 'item')
+        .toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // accents
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+      return { ...item, id: `${category}-${idx}-${slug}` };
+    });
   }
 
   return merged;
 })();
+
+// ============================================================
+// FOCUS PRODUCT MODE — widget centré sur 1 produit
+// ============================================================
+// Activé via URL ?product=xxx ou data-product attribute.
+// Quand actif, le widget bascule en UX simplifiée :
+//  - 1 catégorie active (celle du produit focus)
+//  - Produit hero card en avant
+//  - Quelques teintes "similaires" suggérées
+//  - Bouton "Ajouter au panier" gros et visible
+//  - Cache : catégories switcher, looks, mode comparaison
+
+/**
+ * Récupère l'ID produit depuis l'URL (?product=xxx) ou null.
+ */
+function getProductFromURL() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('product') || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Cherche un produit par son ID dans toutes les catégories du catalogue.
+ * Retourne { item, category } ou null si pas trouvé.
+ */
+function findProductInCatalog(productId) {
+  if (!productId) return null;
+  for (const category of ['lips', 'eyes', 'blush', 'brows', 'highlight']) {
+    const items = PALETTES[category] || [];
+    const found = items.find(it => it.id === productId);
+    if (found) return { item: found, category };
+  }
+  return null;
+}
+
+/**
+ * Trouve les produits "similaires" dans la même catégorie.
+ * Pour l'instant : on prend les 5 autres produits de la catégorie
+ * (proximité de couleur = à implémenter plus tard).
+ */
+function findSimilarProducts(productId, category, limit = 5) {
+  const items = PALETTES[category] || [];
+  return items.filter(it => it.id !== productId).slice(0, limit);
+}
+
+// Détection du mode focus au chargement
+const FOCUS_PRODUCT_ID = getProductFromURL();
+const FOCUS_PRODUCT = findProductInCatalog(FOCUS_PRODUCT_ID);
+const FOCUS_MODE_ACTIVE = FOCUS_PRODUCT !== null;
+
+if (FOCUS_MODE_ACTIVE) {
+  console.log('[Mirow] Focus product mode:', FOCUS_PRODUCT);
+}
 
 // Looks pré-configurés (combos de teintes)
 const LOOKS = [
@@ -1897,11 +2128,27 @@ function resetTmpCanvas(name, W, H) {
 function renderSwatches() {
   const grid = document.getElementById('swatchGrid');
   grid.innerHTML = '';
-  (PALETTES[currentCat] || []).forEach(({ c, n }) => {
+
+  // En mode focus produit, on n'affiche que les teintes "similaires"
+  // (5 max) en plus de la teinte focus elle-même
+  let palette;
+  if (FOCUS_MODE_ACTIVE && FOCUS_PRODUCT && currentCat === FOCUS_PRODUCT.category) {
+    // Mettre le produit focus en premier, puis 5 similaires
+    const similar = findSimilarProducts(FOCUS_PRODUCT.item.id, FOCUS_PRODUCT.category, 5);
+    palette = [FOCUS_PRODUCT.item, ...similar];
+  } else {
+    palette = PALETTES[currentCat] || [];
+  }
+
+  palette.forEach(({ c, n, id }) => {
     const sw = document.createElement('div');
     sw.className = 'swatch' + (c === currentColor ? ' sel' : '');
     sw.style.background = c;
     sw.title = n;
+    // Marquage spécial pour la teinte focus (étoile / badge)
+    if (FOCUS_MODE_ACTIVE && FOCUS_PRODUCT && id === FOCUS_PRODUCT.item.id) {
+      sw.classList.add('focus-shade');
+    }
     sw.addEventListener('click', () => {
       currentColor = c;
       makeup[currentCat] = { c, op: currentOp };
@@ -3574,6 +3821,165 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// ============================================================
+// ADD TO CART — event dispatching pour intégration marque
+// ============================================================
+/**
+ * Déclenche l'événement d'ajout au panier.
+ * La marque écoute "mirow:addToCart" sur window pour brancher
+ * son système e-commerce (Shopify, WooCommerce, custom...).
+ */
+function triggerAddToCart() {
+  // Détermine le produit à ajouter (focus produit OU teinte actuelle)
+  let productData;
+  if (FOCUS_MODE_ACTIVE && FOCUS_PRODUCT) {
+    productData = {
+      productId:   FOCUS_PRODUCT.item.id,
+      productName: FOCUS_PRODUCT.item.p,
+      brand:       FOCUS_PRODUCT.item.b,
+      price:       FOCUS_PRODUCT.item.pr,
+      shadeName:   FOCUS_PRODUCT.item.n,
+      shadeColor:  FOCUS_PRODUCT.item.c,
+      category:    FOCUS_PRODUCT.category,
+    };
+  } else {
+    // Mode normal : on prend le produit actuellement sélectionné
+    const palette = PALETTES[currentCat] || [];
+    const current = palette.find(x => x.c === currentColor) || palette[0];
+    if (!current) return;
+    productData = {
+      productId:   current.id,
+      productName: current.p,
+      brand:       current.b,
+      price:       current.pr,
+      shadeName:   current.n,
+      shadeColor:  current.c,
+      category:    currentCat,
+    };
+  }
+
+  // 1. Event personnalisé pour intégration marque (Shopify, etc.)
+  window.dispatchEvent(new CustomEvent('mirow:addToCart', {
+    detail: productData,
+  }));
+
+  // 2. URL configurable (fallback si la marque a configuré une URL)
+  // Format attendu : data-cart-url avec {productId} comme placeholder
+  // Ex: data-cart-url="https://krème.com/cart/add?product={productId}"
+  const cartUrlTemplate = ACTIVE_BRAND.cartUrl;
+  if (cartUrlTemplate) {
+    const url = cartUrlTemplate.replace('{productId}', encodeURIComponent(productData.productId));
+    window.open(url, '_blank');
+  }
+
+  // 3. Toast de confirmation côté Mirow
+  showAddToCartToast(productData);
+
+  console.log('[Mirow] Add to cart triggered:', productData);
+}
+
+function showAddToCartToast(productData) {
+  // On réutilise le toast existant ou on en crée un
+  let toast = document.getElementById('addToCartToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'addToCartToast';
+    toast.className = 'add-to-cart-toast';
+    document.body.appendChild(toast);
+  }
+  toast.innerHTML = `
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+      <path d="M5 12L10 17L20 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div>
+      <div class="toast-title">Ajouté au panier</div>
+      <div class="toast-subtitle">${productData.productName}</div>
+    </div>
+  `;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2500);
+}
+
+// ============================================================
+// FOCUS MODE — application de l'UX simplifiée
+// ============================================================
+function applyFocusMode() {
+  if (!FOCUS_MODE_ACTIVE) return;
+
+  // 1. Forcer la catégorie active sur celle du produit focus
+  currentCat = FOCUS_PRODUCT.category;
+  currentColor = FOCUS_PRODUCT.item.c;
+
+  // 2. Appliquer la teinte par défaut sur le visage
+  makeup[currentCat] = { c: currentColor, op: currentOp };
+
+  // 3. UI : cacher les éléments non pertinents
+  // - Catégories switcher → pas nécessaire (1 seule catégorie)
+  document.querySelectorAll('.panel-section').forEach(section => {
+    const label = section.querySelector('.section-label');
+    if (!label) return;
+    const labelText = label.textContent.toLowerCase();
+    // On cache : Catégorie, Looks, Style sourcils, Style yeux
+    if (labelText.includes('catégorie') ||
+        labelText.includes('look') ||
+        labelText.includes('style sourcils') ||
+        labelText.includes('style yeux')) {
+      section.style.display = 'none';
+    }
+  });
+
+  // 4. Cacher le sélecteur de Style Lèvres uniquement si focus produit n'est pas lèvres
+  if (currentCat !== 'lips') {
+    document.querySelectorAll('.panel-section').forEach(section => {
+      const label = section.querySelector('.section-label');
+      if (label && label.textContent.toLowerCase().includes('style lèvres')) {
+        section.style.display = 'none';
+      }
+    });
+  }
+
+  // 5. Ajouter une card "Produit Focus" en haut du panel scroll
+  injectFocusProductCard();
+
+  // 6. Mettre à jour le produit suggéré pour qu'il soit le focus produit
+  updateProduct();
+
+  // 7. Re-render des swatches (limité aux 5-6 similaires)
+  renderSwatches();
+}
+
+function injectFocusProductCard() {
+  const panelScroll = document.querySelector('.panel-scroll');
+  if (!panelScroll || !FOCUS_PRODUCT) return;
+
+  // Créer la card de focus produit en tête du panel
+  const card = document.createElement('div');
+  card.className = 'panel-section focus-product-section';
+  card.innerHTML = `
+    <div class="focus-hero-card">
+      <div class="focus-hero-top">
+        <div class="focus-hero-swatch" style="background:${FOCUS_PRODUCT.item.c}"></div>
+        <div class="focus-hero-info">
+          <div class="focus-hero-name">${FOCUS_PRODUCT.item.p}</div>
+          <div class="focus-hero-brand">${FOCUS_PRODUCT.item.b}</div>
+          <div class="focus-hero-shade">Teinte : ${FOCUS_PRODUCT.item.n}</div>
+        </div>
+      </div>
+      <div class="focus-hero-price">${FOCUS_PRODUCT.item.pr}</div>
+      <button class="focus-add-to-cart-btn" id="focusAddToCartBtn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <path d="M3 6H21M8 6V4C8 3.45 8.45 3 9 3H15C15.55 3 16 3.45 16 4V6M5 6L6 20C6 20.55 6.45 21 7 21H17C17.55 21 18 20.55 18 20L19 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Ajouter au panier</span>
+      </button>
+    </div>
+  `;
+  panelScroll.insertBefore(card, panelScroll.firstChild);
+
+  // Brancher le clic
+  document.getElementById('focusAddToCartBtn').addEventListener('click', triggerAddToCart);
+}
+
 // Premier rendu de l'UI (panel)
 renderSwatches();
 renderLooks();
@@ -3602,6 +4008,10 @@ document.getElementById('compareSelectB').addEventListener('change', (e) => {
   compareLookB = e.target.value;
   updateCompareLabels();
 });
+
+// Application du mode focus produit si actif (?product=xxx dans l'URL)
+// Appelé en dernier pour que les fonctions UI soient toutes prêtes
+applyFocusMode();
 </script>
 </body>
 </html>
