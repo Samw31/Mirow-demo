@@ -375,6 +375,202 @@ body {
 
 
 /* ============================================================
+   MODE COMPARAISON — slider draggable + sélecteurs Look A/B
+   ============================================================ */
+
+/* Bouton trigger dans le panel "Looks" */
+.compare-trigger-btn {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(168, 85, 247, 0.08);
+  border: 0.5px solid rgba(168, 85, 247, 0.25);
+  border-radius: 10px;
+  color: var(--electric-purple);
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.compare-trigger-btn:hover {
+  background: rgba(168, 85, 247, 0.15);
+  border-color: rgba(168, 85, 247, 0.5);
+}
+.compare-trigger-btn.active {
+  background: var(--gradient-neon);
+  border-color: transparent;
+  color: #fff;
+}
+
+/* Overlay actif dans la zone caméra */
+.compare-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 12;
+  display: none;
+}
+.compare-overlay.active {
+  display: block;
+}
+
+/* Slider vertical au milieu */
+.compare-slider {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  height: 100%;
+  width: 2px;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+.compare-slider-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.5);
+}
+.compare-slider-handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--gradient-neon);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  cursor: grab;
+  pointer-events: auto;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4), 0 0 0 4px rgba(255, 255, 255, 0.15);
+  transition: transform 0.15s;
+}
+.compare-slider-handle:hover { transform: translate(-50%, -50%) scale(1.08); }
+.compare-slider-handle:active { cursor: grabbing; transform: translate(-50%, -50%) scale(1.05); }
+
+/* Labels A / B en bas */
+.compare-labels {
+  position: absolute;
+  bottom: 24px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 32px;
+  pointer-events: none;
+}
+.compare-label {
+  padding: 8px 14px;
+  background: rgba(9, 9, 15, 0.75);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 99px;
+  color: var(--cream);
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* Contrôles en haut : sélecteurs + bouton quitter */
+.compare-controls {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: auto;
+}
+.compare-selectors {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(9, 9, 15, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 99px;
+  padding: 6px 10px;
+}
+.compare-select {
+  background: transparent;
+  border: none;
+  color: var(--cream);
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 4px 8px;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5' fill='none'%3e%3cpath d='M1 1L4 4L7 1' stroke='%23F0ECE6' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
+  padding-right: 18px;
+}
+.compare-select option {
+  background: var(--surface);
+  color: var(--cream);
+}
+.compare-vs {
+  font-family: Georgia, serif;
+  font-style: italic;
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 0 4px;
+}
+.compare-quit-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: rgba(9, 9, 15, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 0.5px solid rgba(236, 72, 153, 0.3);
+  border-radius: 99px;
+  color: var(--hot-pink);
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.compare-quit-btn:hover {
+  background: rgba(236, 72, 153, 0.15);
+  border-color: rgba(236, 72, 153, 0.6);
+}
+
+@media (max-width: 640px) {
+  .compare-controls { top: 10px; gap: 8px; }
+  .compare-select { font-size: 10px; }
+  .compare-labels { padding: 0 16px; bottom: 16px; }
+  .compare-label { padding: 6px 10px; font-size: 9px; }
+}
+
+/* ============================================================
    PANEL DROITE — contrôles makeup
    ============================================================ */
 .panel {
@@ -1046,6 +1242,40 @@ input[type=range]::-moz-range-thumb {
       <button class="capture-btn" id="captureBtn" aria-label="Prendre une photo">
         <span class="capture-btn-inner"></span>
       </button>
+
+      <!-- Mode comparaison : slider draggable + labels -->
+      <div class="compare-overlay" id="compareOverlay">
+        <!-- Ligne verticale du slider avec poignée -->
+        <div class="compare-slider" id="compareSlider">
+          <div class="compare-slider-line"></div>
+          <div class="compare-slider-handle" id="compareSliderHandle">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M9 6L4 12L9 18M15 6L20 12L15 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Labels Look A / Look B en bas -->
+        <div class="compare-labels">
+          <div class="compare-label compare-label-a" id="compareLabelA">Naturel</div>
+          <div class="compare-label compare-label-b" id="compareLabelB">Glam</div>
+        </div>
+
+        <!-- Barre de contrôles en haut : sélecteurs + bouton quitter -->
+        <div class="compare-controls">
+          <div class="compare-selectors">
+            <select class="compare-select compare-select-a" id="compareSelectA"></select>
+            <span class="compare-vs">VS</span>
+            <select class="compare-select compare-select-b" id="compareSelectB"></select>
+          </div>
+          <button class="compare-quit-btn" id="compareQuitBtn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M6 6L18 18M6 18L18 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <span>Quitter</span>
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Panel de contrôles -->
@@ -1080,6 +1310,12 @@ input[type=range]::-moz-range-thumb {
       <div class="panel-section">
         <div class="section-label">Looks</div>
         <div class="look-grid" id="lookGrid"></div>
+        <button class="compare-trigger-btn" id="compareTriggerBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <path d="M8 3V21M16 3V21M3 8L8 3L3 8ZM3 8V16M3 8L8 13M21 8L16 3L21 8ZM21 8V16M21 8L16 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>Comparer 2 looks</span>
+        </button>
       </div>
 
       <div class="panel-section">
@@ -1568,6 +1804,12 @@ let currentEyeStyle = 'natural';  // 'natural' | 'defined' | 'smoky'
 let eyelinerEnabled = false;       // toggle eyeliner on/off
 let currentLipStyle = 'glossy';   // 'matte' | 'glossy' | 'metallic'
 
+// Mode comparaison 2 looks complets
+let compareMode = false;           // false par défaut
+let compareLookA = 'natural';      // id du look côté gauche
+let compareLookB = 'glam';         // id du look côté droit
+let compareSliderPos = 0.5;        // 0=tout gauche, 0.5=centre, 1=tout droite
+
 // Tone matching — détecté au démarrage et stocké
 // Niveaux : 'very-light' | 'light' | 'medium' | 'deep' | null (avant détection)
 let detectedTone = null;
@@ -1967,12 +2209,199 @@ function applyMakeupAR(lm, W, H) {
     detectSkinTone(lm, W, H);
   }
 
-  // Ordre : du fond vers le devant (peau → blush → highlight → yeux → sourcils → lèvres)
+  // MODE COMPARAISON : on rend 2 looks côte à côte avec clip vertical
+  if (compareMode) {
+    renderCompareMode(lm, W, H);
+    return;
+  }
+
+  // Mode normal : 1 seul rendu
   applyBlush(lm, W, H);
   applyHighlight(lm, W, H);
   applyEyes(lm, W, H);
   applyBrows(lm, W, H);
   applyLips(lm, W, H);
+}
+
+// ============================================================
+// MODE COMPARAISON — rendu 2 looks côte à côte
+// ============================================================
+
+/**
+ * Sauvegarde du makeup courant (utilisé pour restaurer après comparaison)
+ */
+let savedMakeup = null;
+
+/**
+ * Applique un look complet aux variables `makeup` globales.
+ * On utilise les mêmes looks que ceux du panel (constante LOOKS).
+ */
+function applyLookToMakeup(lookId) {
+  const look = LOOKS.find(l => l.id === lookId);
+  if (!look) return;
+  makeup = {
+    lips:      { ...look.lips },
+    eyes:      { ...look.eyes },
+    blush:     { ...look.blush },
+    brows:     { ...look.brows },
+    highlight: { ...look.highlight },
+  };
+}
+
+/**
+ * Rendu du mode comparaison.
+ * - Côté gauche du slider : look A
+ * - Côté droit du slider : look B
+ * On utilise ctx.save/clip/restore pour limiter le rendu à chaque moitié.
+ */
+function renderCompareMode(lm, W, H) {
+  const sliderX = W * compareSliderPos;
+
+  // 1. RENDU CÔTÉ GAUCHE = Look A
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, sliderX, H);
+  ctx.clip();
+  applyLookToMakeup(compareLookA);
+  applyBlush(lm, W, H);
+  applyHighlight(lm, W, H);
+  applyEyes(lm, W, H);
+  applyBrows(lm, W, H);
+  applyLips(lm, W, H);
+  ctx.restore();
+
+  // 2. RENDU CÔTÉ DROIT = Look B
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(sliderX, 0, W - sliderX, H);
+  ctx.clip();
+  applyLookToMakeup(compareLookB);
+  applyBlush(lm, W, H);
+  applyHighlight(lm, W, H);
+  applyEyes(lm, W, H);
+  applyBrows(lm, W, H);
+  applyLips(lm, W, H);
+  ctx.restore();
+
+  // Restaurer le makeup sauvegardé (pour ne pas affecter le mode normal)
+  if (savedMakeup) {
+    makeup = JSON.parse(JSON.stringify(savedMakeup));
+  }
+}
+
+/**
+ * Active le mode comparaison.
+ */
+function enterCompareMode() {
+  if (compareMode) return;
+  // Sauvegarder l'état makeup actuel pour pouvoir le restaurer en sortie
+  savedMakeup = JSON.parse(JSON.stringify(makeup));
+  compareMode = true;
+  document.getElementById('compareOverlay').classList.add('active');
+  document.getElementById('compareTriggerBtn').classList.add('active');
+  updateCompareLabels();
+}
+
+/**
+ * Quitte le mode comparaison et restaure l'état précédent.
+ */
+function exitCompareMode() {
+  if (!compareMode) return;
+  compareMode = false;
+  document.getElementById('compareOverlay').classList.remove('active');
+  document.getElementById('compareTriggerBtn').classList.remove('active');
+  // Restaurer le makeup d'avant la comparaison
+  if (savedMakeup) {
+    makeup = JSON.parse(JSON.stringify(savedMakeup));
+    savedMakeup = null;
+  }
+  // Reset slider au centre
+  compareSliderPos = 0.5;
+  const slider = document.getElementById('compareSlider');
+  if (slider) slider.style.left = '50%';
+}
+
+/**
+ * Met à jour les labels A/B en bas avec le nom du look choisi.
+ */
+function updateCompareLabels() {
+  const lookA = LOOKS.find(l => l.id === compareLookA);
+  const lookB = LOOKS.find(l => l.id === compareLookB);
+  if (lookA) document.getElementById('compareLabelA').textContent = lookA.name;
+  if (lookB) document.getElementById('compareLabelB').textContent = lookB.name;
+}
+
+/**
+ * Peuple les sélecteurs A/B avec tous les looks disponibles.
+ */
+function populateCompareSelectors() {
+  const selA = document.getElementById('compareSelectA');
+  const selB = document.getElementById('compareSelectB');
+  if (!selA || !selB) return;
+
+  selA.innerHTML = '';
+  selB.innerHTML = '';
+  LOOKS.forEach(look => {
+    const optA = document.createElement('option');
+    optA.value = look.id;
+    optA.textContent = look.name;
+    selA.appendChild(optA);
+
+    const optB = document.createElement('option');
+    optB.value = look.id;
+    optB.textContent = look.name;
+    selB.appendChild(optB);
+  });
+  selA.value = compareLookA;
+  selB.value = compareLookB;
+}
+
+/**
+ * Drag du slider de comparaison.
+ * On capture mousedown/touchstart sur le handle, puis on suit le mouvement
+ * jusqu'au mouseup/touchend.
+ */
+function setupCompareSliderDrag() {
+  const slider = document.getElementById('compareSlider');
+  const handle = document.getElementById('compareSliderHandle');
+  if (!slider || !handle) return;
+
+  let dragging = false;
+
+  const startDrag = (e) => {
+    if (!compareMode) return;
+    dragging = true;
+    e.preventDefault();
+  };
+
+  const onMove = (clientX) => {
+    if (!dragging) return;
+    const camArea = document.querySelector('.cam-area');
+    if (!camArea) return;
+    const rect = camArea.getBoundingClientRect();
+    // Position relative dans la zone caméra (0 à 1)
+    // ATTENTION : le canvas est en miroir (transform scaleX(-1)), donc on
+    // inverse la position pour que le slider se déplace dans le bon sens
+    // du point de vue utilisateur
+    const rawPos = (clientX - rect.left) / rect.width;
+    compareSliderPos = Math.max(0.05, Math.min(0.95, 1 - rawPos));
+    // Mettre à jour la position visuelle du slider (inversée car miroir)
+    slider.style.left = (rawPos * 100) + '%';
+  };
+
+  const endDrag = () => { dragging = false; };
+
+  // Mouse events
+  handle.addEventListener('mousedown', startDrag);
+  document.addEventListener('mousemove', (e) => onMove(e.clientX));
+  document.addEventListener('mouseup', endDrag);
+
+  // Touch events
+  handle.addEventListener('touchstart', startDrag, { passive: false });
+  document.addEventListener('touchmove', (e) => {
+    if (dragging && e.touches[0]) onMove(e.touches[0].clientX);
+  }, { passive: true });
+  document.addEventListener('touchend', endDrag);
 }
 
 // ============================================================
@@ -3131,6 +3560,26 @@ updateProduct();
 // Application de l'identité de marque et features du plan
 applyBrandIdentity();
 applyPlanFeatures();
+
+// Initialisation mode comparaison
+populateCompareSelectors();
+setupCompareSliderDrag();
+document.getElementById('compareTriggerBtn').addEventListener('click', () => {
+  if (compareMode) {
+    exitCompareMode();
+  } else {
+    enterCompareMode();
+  }
+});
+document.getElementById('compareQuitBtn').addEventListener('click', exitCompareMode);
+document.getElementById('compareSelectA').addEventListener('change', (e) => {
+  compareLookA = e.target.value;
+  updateCompareLabels();
+});
+document.getElementById('compareSelectB').addEventListener('change', (e) => {
+  compareLookB = e.target.value;
+  updateCompareLabels();
+});
 </script>
 </body>
 </html>
