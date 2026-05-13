@@ -2255,41 +2255,60 @@ function applyLookToMakeup(lookId) {
  * On utilise ctx.save/clip/restore pour limiter le rendu à chaque moitié.
  */
 function renderCompareMode(lm, W, H) {
-  // ATTENTION : le canvas est miroité via CSS (scaleX -1).
-  // Ce que l'utilisateur voit "à gauche" correspond au côté DROIT du canvas.
-  // Donc pour afficher le Look A à gauche de l'utilisateur, on doit clipper
-  // sur la moitié DROITE du canvas (et vice-versa pour le Look B).
-  // Le slider visuel est à position `compareSliderPos` (0=gauche utilisateur,
-  // 1=droite utilisateur). Sa position dans le canvas = (1 - compareSliderPos).
+  // ============================================================
+  // CONVENTIONS :
+  // - compareSliderPos : position VISUELLE du slider à l'écran
+  //   0 = bord gauche écran, 0.5 = centre, 1 = bord droit écran
+  // - canvas CSS scaleX(-1) → coord physique X visible à position
+  //   visuelle (W - X)
+  // - Look A doit apparaître à GAUCHE écran = côté physique DROIT
+  //   du canvas, donc dans la zone [sliderXCanvas, W]
+  // - Look B doit apparaître à DROITE écran = côté physique GAUCHE
+  //   du canvas, donc dans la zone [0, sliderXCanvas]
+  //
+  // STRATÉGIE : on dessine chaque look sur tout le canvas, puis on
+  // efface la moitié non désirée. Plus fiable qu'un clip parce que
+  // les fonctions de rendu internes utilisent save/restore qui
+  // peuvent annuler un clip externe.
+  // ============================================================
   const sliderXCanvas = W * (1 - compareSliderPos);
 
-  // 1. LOOK A → côté gauche pour l'utilisateur = moitié DROITE du canvas
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(sliderXCanvas, 0, W - sliderXCanvas, H);
-  ctx.clip();
+  // === 1. LOOK A → garder côté physique DROIT [sliderXCanvas, W] ===
   applyLookToMakeup(compareLookA);
   applyBlush(lm, W, H);
   applyHighlight(lm, W, H);
   applyEyes(lm, W, H);
   applyBrows(lm, W, H);
   applyLips(lm, W, H);
-  ctx.restore();
 
-  // 2. LOOK B → côté droit pour l'utilisateur = moitié GAUCHE du canvas
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, 0, sliderXCanvas, H);
-  ctx.clip();
+  // Effacer la moitié physique GAUCHE (= visuel DROIT écran)
+  // pour ne garder que le côté gauche visuel
+  ctx.clearRect(0, 0, sliderXCanvas, H);
+
+  // === 2. Sauvegarder le Look A nettoyé dans un canvas temporaire ===
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = W;
+  tempCanvas.height = H;
+  const tempCtx = tempCanvas.getContext('2d');
+  tempCtx.drawImage(canvas, 0, 0);
+
+  // === 3. Effacer tout et dessiner Look B partout ===
+  ctx.clearRect(0, 0, W, H);
   applyLookToMakeup(compareLookB);
   applyBlush(lm, W, H);
   applyHighlight(lm, W, H);
   applyEyes(lm, W, H);
   applyBrows(lm, W, H);
   applyLips(lm, W, H);
-  ctx.restore();
 
-  // Restaurer le makeup sauvegardé (pour ne pas affecter le mode normal)
+  // === 4. Garder uniquement côté physique GAUCHE [0, sliderXCanvas] ===
+  // = visuel droit écran, où Look B doit être
+  ctx.clearRect(sliderXCanvas, 0, W - sliderXCanvas, H);
+
+  // === 5. Composer : remettre le Look A par-dessus ===
+  ctx.drawImage(tempCanvas, 0, 0);
+
+  // Restaurer le makeup sauvegardé pour ne pas affecter le mode normal
   if (savedMakeup) {
     makeup = JSON.parse(JSON.stringify(savedMakeup));
   }
