@@ -1,0 +1,1380 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mirow Onboarding · Génération config marque</title>
+
+<!--
+  ============================================================
+  MIROW ONBOARDING TOOL v1.0
+  ============================================================
+  Page interne pour Hawk + Samuel.
+  Permet de générer la config JSON d'une nouvelle marque cliente
+  à partir d'un CSV catalogue + formulaire d'identité.
+
+  Workflow :
+   1. Auth (mot de passe simple)
+   2. Identité marque (nom, plan, palette, logo)
+   3. Upload CSV catalogue
+   4. Mapping colonnes CSV → champs Mirow
+   5. Preview config + Export JSON + Aperçu widget
+
+  La config générée est destinée à être collée manuellement
+  dans BRAND_REGISTRY de index.html.
+  ============================================================
+-->
+
+<style>
+:root {
+  --void:           #09090F;
+  --surface:        #131318;
+  --surface-2:      #1B1B22;
+  --border:         rgba(255, 255, 255, 0.08);
+  --border-strong:  rgba(255, 255, 255, 0.16);
+  --cream:          #F0ECE6;
+  --text-secondary: rgba(240, 236, 230, 0.65);
+  --text-tertiary:  rgba(240, 236, 230, 0.4);
+  --electric-purple:#A855F7;
+  --hot-pink:       #EC4899;
+  --gradient-neon:  linear-gradient(135deg, #A855F7 0%, #EC4899 100%);
+  --success:        #4ADE80;
+  --warning:        #FBBF24;
+  --danger:         #EF4444;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--void);
+  color: var(--cream);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  min-height: 100vh;
+  padding: 32px 24px 80px;
+}
+
+/* ============================================================
+   AUTH MODAL
+   ============================================================ */
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--void);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  flex-direction: column;
+  gap: 24px;
+  padding: 24px;
+}
+.auth-overlay.hidden { display: none; }
+.auth-card {
+  max-width: 380px;
+  width: 100%;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 16px;
+  padding: 36px 28px;
+  text-align: center;
+}
+.auth-logo {
+  font-family: Georgia, serif;
+  font-size: 32px;
+  letter-spacing: -0.02em;
+  margin-bottom: 6px;
+}
+.auth-logo .accent {
+  background: var(--gradient-neon);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-style: italic;
+}
+.auth-sub {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 28px;
+}
+.auth-input {
+  width: 100%;
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+  color: var(--cream);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  margin-bottom: 14px;
+  transition: border-color 0.2s;
+}
+.auth-input:focus { border-color: var(--electric-purple); }
+.auth-btn {
+  width: 100%;
+  padding: 14px;
+  background: var(--gradient-neon);
+  border: none;
+  border-radius: 99px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 8px 24px rgba(168, 85, 247, 0.25);
+}
+.auth-btn:hover { transform: translateY(-1px); }
+.auth-error {
+  font-size: 12px;
+  color: var(--danger);
+  margin-top: 12px;
+  display: none;
+}
+.auth-error.show { display: block; }
+
+/* ============================================================
+   APP LAYOUT
+   ============================================================ */
+.app {
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 0.5px solid var(--border);
+}
+.header-left { display: flex; align-items: center; gap: 16px; }
+.logo {
+  font-family: Georgia, serif;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+}
+.logo .accent {
+  background: var(--gradient-neon);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-style: italic;
+}
+.app-tag {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--electric-purple);
+  padding: 4px 10px;
+  background: rgba(168, 85, 247, 0.12);
+  border: 0.5px solid rgba(168, 85, 247, 0.3);
+  border-radius: 99px;
+}
+.logout-btn {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px 12px;
+  font-family: inherit;
+}
+.logout-btn:hover { color: var(--cream); }
+
+/* Stepper */
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 36px;
+  flex-wrap: wrap;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 99px;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  transition: all 0.3s;
+}
+.step.active {
+  background: var(--gradient-neon);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 500;
+}
+.step.done {
+  background: rgba(74, 222, 128, 0.1);
+  border-color: rgba(74, 222, 128, 0.3);
+  color: var(--success);
+}
+.step-num {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 600;
+}
+.step.active .step-num { background: rgba(255, 255, 255, 0.25); }
+.step-arrow {
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+/* Section */
+.section { display: none; }
+.section.active { display: block; }
+.section-title {
+  font-family: Georgia, serif;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+  margin-bottom: 6px;
+}
+.section-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 28px;
+}
+
+/* Form fields */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+@media (max-width: 640px) { .form-grid { grid-template-columns: 1fr; } }
+
+.form-field { display: flex; flex-direction: column; gap: 6px; }
+.form-field.full { grid-column: 1 / -1; }
+.form-label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.form-input,
+.form-select {
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+  color: var(--cream);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.form-input:focus, .form-select:focus { border-color: var(--electric-purple); }
+.form-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+/* Color preview */
+.color-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 12px;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+}
+.color-input-wrap input[type="text"] {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--cream);
+  font-family: 'Menlo', monospace;
+  font-size: 12px;
+  outline: none;
+}
+.color-swatch {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 0.5px solid var(--border-strong);
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+.color-swatch input[type="color"] {
+  position: absolute;
+  inset: -4px;
+  width: calc(100% + 8px);
+  height: calc(100% + 8px);
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+
+/* Drop zone (CSV upload) */
+.drop-zone {
+  border: 1.5px dashed rgba(168, 85, 247, 0.3);
+  border-radius: 16px;
+  padding: 48px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: rgba(168, 85, 247, 0.03);
+}
+.drop-zone:hover, .drop-zone.dragging {
+  border-color: var(--electric-purple);
+  background: rgba(168, 85, 247, 0.08);
+}
+.drop-zone-icon { font-size: 36px; margin-bottom: 14px; }
+.drop-zone-title {
+  font-family: Georgia, serif;
+  font-size: 18px;
+  margin-bottom: 6px;
+}
+.drop-zone-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.drop-zone-input {
+  display: none;
+}
+
+/* CSV preview table */
+.csv-preview {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-top: 20px;
+}
+.csv-preview-header {
+  padding: 14px 18px;
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 0.5px solid var(--border);
+}
+.csv-filename {
+  font-size: 13px;
+  font-weight: 500;
+}
+.csv-stats {
+  font-size: 11px;
+  color: var(--text-secondary);
+  letter-spacing: 0.04em;
+}
+.csv-table-wrap {
+  overflow-x: auto;
+  max-height: 280px;
+}
+.csv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.csv-table th, .csv-table td {
+  padding: 8px 14px;
+  text-align: left;
+  border-bottom: 0.5px solid var(--border);
+  white-space: nowrap;
+}
+.csv-table th {
+  background: var(--surface-2);
+  font-weight: 500;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  position: sticky;
+  top: 0;
+}
+.csv-table tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
+
+/* Mapping section */
+.mapping-card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  padding: 22px;
+  margin-bottom: 18px;
+}
+.mapping-cat-title {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--electric-purple);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mapping-cat-title-count {
+  background: rgba(168, 85, 247, 0.15);
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 10px;
+}
+.mapping-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 640px) { .mapping-grid { grid-template-columns: 1fr; } }
+
+/* Preview config card */
+.preview-card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  padding: 22px;
+  margin-bottom: 20px;
+}
+.preview-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.preview-stat {
+  background: var(--surface-2);
+  padding: 14px 16px;
+  border-radius: 10px;
+}
+.preview-stat-label {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.preview-stat-value {
+  font-family: Georgia, serif;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+.preview-json {
+  background: #0A0A0F;
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  font-family: 'Menlo', 'Monaco', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #C9D1D9;
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre;
+}
+
+/* Buttons */
+.btn-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 28px;
+  flex-wrap: wrap;
+}
+.btn {
+  padding: 12px 22px;
+  border-radius: 99px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-primary {
+  background: var(--gradient-neon);
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(168, 85, 247, 0.25);
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 12px 32px rgba(168, 85, 247, 0.4); }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.04);
+  border: 0.5px solid var(--border);
+  color: var(--cream);
+}
+.btn-ghost:hover { background: rgba(168, 85, 247, 0.1); border-color: rgba(168, 85, 247, 0.4); }
+.btn-success {
+  background: rgba(74, 222, 128, 0.1);
+  border: 0.5px solid rgba(74, 222, 128, 0.4);
+  color: var(--success);
+}
+.btn-success:hover { background: rgba(74, 222, 128, 0.2); }
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(120%);
+  padding: 12px 22px;
+  background: rgba(9, 9, 15, 0.92);
+  border: 0.5px solid var(--success);
+  border-radius: 99px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--success);
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+  z-index: 100;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+
+/* Instructions card */
+.instructions {
+  background: rgba(74, 222, 128, 0.05);
+  border: 0.5px solid rgba(74, 222, 128, 0.2);
+  border-radius: 12px;
+  padding: 20px 22px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.instructions-title {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--success);
+  margin-bottom: 12px;
+}
+.instructions code {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'Menlo', monospace;
+  font-size: 12px;
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     AUTH OVERLAY
+     ============================================================ -->
+<div class="auth-overlay" id="authOverlay">
+  <div class="auth-card">
+    <div class="auth-logo">mir<span class="accent">o</span>w</div>
+    <div class="auth-sub">Onboarding · Accès restreint</div>
+    <input type="password" class="auth-input" id="authInput" placeholder="Mot de passe" autocomplete="off">
+    <button class="auth-btn" id="authBtn">Accéder</button>
+    <div class="auth-error" id="authError">Mot de passe incorrect</div>
+  </div>
+</div>
+
+<!-- ============================================================
+     APP
+     ============================================================ -->
+<div class="app" id="app" style="display:none;">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">mir<span class="accent">o</span>w</div>
+      <div class="app-tag">Onboarding marque</div>
+    </div>
+    <button class="logout-btn" id="logoutBtn">Déconnexion</button>
+  </div>
+
+  <!-- Stepper -->
+  <div class="stepper" id="stepper">
+    <div class="step active" data-step="1"><span class="step-num">1</span><span>Identité</span></div>
+    <div class="step-arrow">→</div>
+    <div class="step" data-step="2"><span class="step-num">2</span><span>Upload CSV</span></div>
+    <div class="step-arrow">→</div>
+    <div class="step" data-step="3"><span class="step-num">3</span><span>Mapping</span></div>
+    <div class="step-arrow">→</div>
+    <div class="step" data-step="4"><span class="step-num">4</span><span>Export</span></div>
+  </div>
+
+  <!-- ============================================================
+       STEP 1 — Identité de la marque
+       ============================================================ -->
+  <div class="section active" data-section="1">
+    <div class="section-title">Identité de la marque</div>
+    <div class="section-desc">Informations de base et personnalisation visuelle du widget pour cette marque cliente.</div>
+
+    <div class="form-grid">
+      <div class="form-field">
+        <label class="form-label">ID interne (slug)</label>
+        <input type="text" class="form-input" id="brandId" placeholder="ex: kreme" pattern="[a-z0-9-]+">
+        <div class="form-hint">Lowercase, sans accents, sans espaces. Utilisé dans l'URL : ?brand=xxx</div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Nom commercial</label>
+        <input type="text" class="form-input" id="brandName" placeholder="ex: Krème Paris">
+      </div>
+
+      <div class="form-field">
+        <label class="form-label">Logo (texte)</label>
+        <input type="text" class="form-input" id="brandLogo" placeholder="ex: krème">
+        <div class="form-hint">Texte du logo affiché dans le widget</div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Lettre accentuée du logo</label>
+        <input type="text" class="form-input" id="brandLogoAccent" placeholder="ex: o" maxlength="1">
+        <div class="form-hint">Cette lettre recevra le gradient violet/rose</div>
+      </div>
+
+      <div class="form-field">
+        <label class="form-label">Site web</label>
+        <input type="url" class="form-input" id="brandWebsite" placeholder="https://kreme-paris.com">
+      </div>
+      <div class="form-field">
+        <label class="form-label">Plan</label>
+        <select class="form-select" id="brandPlan">
+          <option value="starter">Starter — 199€/mois (Founding)</option>
+          <option value="growth" selected>Growth — 499€/mois (Founding)</option>
+          <option value="premium">Premium — 999€/mois (Founding)</option>
+        </select>
+      </div>
+
+      <div class="form-field full">
+        <label class="form-label">Tagline (optionnelle)</label>
+        <input type="text" class="form-input" id="brandTagline" placeholder="ex: La beauté naturelle parisienne">
+      </div>
+
+      <!-- Couleurs -->
+      <div class="form-field">
+        <label class="form-label">Couleur primaire</label>
+        <div class="color-input-wrap">
+          <input type="text" id="brandPrimary" value="#A855F7">
+          <div class="color-swatch" style="background:#A855F7" id="brandPrimarySwatch">
+            <input type="color" value="#A855F7" id="brandPrimaryPicker">
+          </div>
+        </div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Couleur d'accent</label>
+        <div class="color-input-wrap">
+          <input type="text" id="brandAccent" value="#EC4899">
+          <div class="color-swatch" style="background:#EC4899" id="brandAccentSwatch">
+            <input type="color" value="#EC4899" id="brandAccentPicker">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-field">
+        <label class="form-label">Fond principal (void)</label>
+        <div class="color-input-wrap">
+          <input type="text" id="brandVoid" value="#09090F">
+          <div class="color-swatch" style="background:#09090F" id="brandVoidSwatch">
+            <input type="color" value="#09090F" id="brandVoidPicker">
+          </div>
+        </div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Surface (panel)</label>
+        <div class="color-input-wrap">
+          <input type="text" id="brandSurface" value="#131318">
+          <div class="color-swatch" style="background:#131318" id="brandSurfaceSwatch">
+            <input type="color" value="#131318" id="brandSurfacePicker">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-field full">
+        <label class="form-label">URL Add-to-cart (optionnelle)</label>
+        <input type="text" class="form-input" id="brandCartUrl" placeholder="https://kreme-paris.com/cart/add?product={productId}">
+        <div class="form-hint">Placeholder <code>{productId}</code> remplacé automatiquement. Si vide, seul l'event JS sera émis.</div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" id="step1Next">Étape suivante →</button>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       STEP 2 — Upload CSV
+       ============================================================ -->
+  <div class="section" data-section="2">
+    <div class="section-title">Catalogue produits</div>
+    <div class="section-desc">Importez le fichier CSV du catalogue de la marque. Le fichier peut contenir n'importe quelles colonnes — vous les mapperez à l'étape suivante.</div>
+
+    <div class="drop-zone" id="dropZone">
+      <div class="drop-zone-icon">📄</div>
+      <div class="drop-zone-title">Glissez votre CSV ici</div>
+      <div class="drop-zone-sub">ou cliquez pour sélectionner un fichier</div>
+      <input type="file" class="drop-zone-input" id="csvInput" accept=".csv,text/csv">
+    </div>
+
+    <div class="csv-preview" id="csvPreview" style="display:none;">
+      <div class="csv-preview-header">
+        <div>
+          <div class="csv-filename" id="csvFilename">—</div>
+          <div class="csv-stats" id="csvStats">—</div>
+        </div>
+        <button class="btn btn-ghost" id="csvRemove" style="padding:6px 12px;font-size:10px;">Retirer</button>
+      </div>
+      <div class="csv-table-wrap">
+        <table class="csv-table" id="csvTable"></table>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" data-back-to="1">← Retour</button>
+      <button class="btn btn-primary" id="step2Next" disabled>Étape suivante →</button>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       STEP 3 — Mapping colonnes
+       ============================================================ -->
+  <div class="section" data-section="3">
+    <div class="section-title">Mapping des colonnes</div>
+    <div class="section-desc">Pour chaque type de produit, indiquez les colonnes du CSV qui correspondent. Laissez sur "Aucun" pour ignorer une catégorie.</div>
+
+    <div id="mappingContainer"></div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" data-back-to="2">← Retour</button>
+      <button class="btn btn-primary" id="step3Next">Générer la config →</button>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       STEP 4 — Preview + Export
+       ============================================================ -->
+  <div class="section" data-section="4">
+    <div class="section-title">Configuration générée</div>
+    <div class="section-desc">Vérifiez la configuration, testez le widget, puis copiez le JSON pour l'intégrer dans Mirow.</div>
+
+    <div class="preview-card">
+      <div class="preview-summary" id="previewSummary"></div>
+    </div>
+
+    <div class="instructions">
+      <div class="instructions-title">📋 Instructions d'intégration</div>
+      <ol style="padding-left:18px;">
+        <li>Copiez le JSON ci-dessous</li>
+        <li>Ouvrez <code>index.html</code> sur GitHub</li>
+        <li>Trouvez la section <code>const BRAND_REGISTRY = { ... }</code></li>
+        <li>Collez le JSON dans l'objet (après la dernière marque, virgule avant)</li>
+        <li>Commit → Vercel redéploie en 30 sec → Marque opérationnelle</li>
+      </ol>
+    </div>
+
+    <div class="preview-card">
+      <pre class="preview-json" id="previewJson">—</pre>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" data-back-to="3">← Retour</button>
+      <button class="btn btn-success" id="copyJsonBtn">📋 Copier le JSON</button>
+      <button class="btn btn-primary" id="testWidgetBtn">🚀 Tester le widget</button>
+      <button class="btn btn-ghost" id="restartBtn">⟳ Nouvelle marque</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast">—</div>
+
+<script>
+// ============================================================
+// MIROW ONBOARDING — LOGIQUE
+// ============================================================
+
+// Password (changeable). Hash simple pour pas le mettre en clair direct
+// dans le source. Sécurité minimale : empêche les curieux non-techs.
+// Un dev qui inspecte le source peut bypass — c'est OK pour Phase 1.
+const AUTH_PASSWORD_HASH = 'a1b2c3'; // dummy, défini ci-dessous
+
+// Hash simple (djb2). Renvoie un string court.
+function simpleHash(str) {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) + h) + str.charCodeAt(i);
+  }
+  return (h >>> 0).toString(36);
+}
+
+// Hash du mot de passe attendu : "Mirow2026Hawk!"
+// (calculé à l'avance, à remplacer si tu changes le password)
+const EXPECTED_HASH = simpleHash('Mirow2026Hawk!');
+
+// ============================================================
+// AUTH
+// ============================================================
+const authOverlay = document.getElementById('authOverlay');
+const authInput = document.getElementById('authInput');
+const authBtn = document.getElementById('authBtn');
+const authError = document.getElementById('authError');
+const appEl = document.getElementById('app');
+
+function checkAuth() {
+  // Auth déjà validée pour cette session ?
+  if (sessionStorage.getItem('mirow_onboard_auth') === EXPECTED_HASH) {
+    showApp();
+    return true;
+  }
+  return false;
+}
+
+function tryAuth() {
+  const value = authInput.value;
+  if (simpleHash(value) === EXPECTED_HASH) {
+    sessionStorage.setItem('mirow_onboard_auth', EXPECTED_HASH);
+    showApp();
+    authError.classList.remove('show');
+  } else {
+    authError.classList.add('show');
+    authInput.value = '';
+    authInput.focus();
+  }
+}
+
+function showApp() {
+  authOverlay.classList.add('hidden');
+  appEl.style.display = 'block';
+}
+
+function logout() {
+  sessionStorage.removeItem('mirow_onboard_auth');
+  authOverlay.classList.remove('hidden');
+  appEl.style.display = 'none';
+  authInput.value = '';
+  authInput.focus();
+}
+
+authBtn.addEventListener('click', tryAuth);
+authInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryAuth(); });
+document.getElementById('logoutBtn').addEventListener('click', logout);
+
+if (!checkAuth()) {
+  setTimeout(() => authInput.focus(), 100);
+}
+
+// ============================================================
+// STEPPER NAVIGATION
+// ============================================================
+let currentStep = 1;
+function goToStep(n) {
+  currentStep = n;
+  document.querySelectorAll('.step').forEach(s => {
+    const sn = parseInt(s.dataset.step);
+    s.classList.remove('active', 'done');
+    if (sn < n) s.classList.add('done');
+    else if (sn === n) s.classList.add('active');
+  });
+  document.querySelectorAll('.section').forEach(s => {
+    s.classList.toggle('active', parseInt(s.dataset.section) === n);
+  });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+document.querySelectorAll('[data-back-to]').forEach(btn => {
+  btn.addEventListener('click', () => goToStep(parseInt(btn.dataset.backTo)));
+});
+
+// ============================================================
+// STEP 1 — IDENTITÉ
+// ============================================================
+// Sync color text ↔ color picker
+function syncColorInput(textId, pickerId, swatchId) {
+  const text = document.getElementById(textId);
+  const picker = document.getElementById(pickerId);
+  const swatch = document.getElementById(swatchId);
+
+  text.addEventListener('input', () => {
+    const v = text.value;
+    if (/^#[0-9A-Fa-f]{6}$/.test(v)) {
+      picker.value = v;
+      swatch.style.background = v;
+    }
+  });
+  picker.addEventListener('input', () => {
+    text.value = picker.value;
+    swatch.style.background = picker.value;
+  });
+}
+syncColorInput('brandPrimary',  'brandPrimaryPicker',  'brandPrimarySwatch');
+syncColorInput('brandAccent',   'brandAccentPicker',   'brandAccentSwatch');
+syncColorInput('brandVoid',     'brandVoidPicker',     'brandVoidSwatch');
+syncColorInput('brandSurface',  'brandSurfacePicker',  'brandSurfaceSwatch');
+
+// Auto-slug : génère brandId à partir de brandName si vide
+document.getElementById('brandName').addEventListener('input', (e) => {
+  const idField = document.getElementById('brandId');
+  if (!idField.dataset.manuallyEdited) {
+    idField.value = e.target.value
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+});
+document.getElementById('brandId').addEventListener('input', (e) => {
+  e.target.dataset.manuallyEdited = 'true';
+});
+
+document.getElementById('step1Next').addEventListener('click', () => {
+  // Validation minimale
+  const required = ['brandId', 'brandName', 'brandLogo'];
+  for (const id of required) {
+    const v = document.getElementById(id).value.trim();
+    if (!v) {
+      showToast('Champ requis manquant : ' + id);
+      document.getElementById(id).focus();
+      return;
+    }
+  }
+  goToStep(2);
+});
+
+// ============================================================
+// STEP 2 — UPLOAD CSV
+// ============================================================
+let csvData = null;       // { headers: [...], rows: [[...], ...] }
+const dropZone   = document.getElementById('dropZone');
+const csvInput   = document.getElementById('csvInput');
+const csvPreview = document.getElementById('csvPreview');
+
+dropZone.addEventListener('click', () => csvInput.click());
+dropZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropZone.classList.add('dragging');
+});
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragging'));
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('dragging');
+  const file = e.dataTransfer.files[0];
+  if (file) handleCSVFile(file);
+});
+csvInput.addEventListener('change', (e) => {
+  if (e.target.files[0]) handleCSVFile(e.target.files[0]);
+});
+
+function handleCSVFile(file) {
+  if (!file.name.toLowerCase().endsWith('.csv') && !file.type.includes('csv')) {
+    showToast('Fichier CSV requis');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const text = e.target.result;
+      csvData = parseCSV(text);
+      csvData.filename = file.name;
+      csvData.size = file.size;
+      renderCSVPreview();
+      document.getElementById('step2Next').disabled = false;
+    } catch (err) {
+      console.error(err);
+      showToast('Erreur de parsing : ' + err.message);
+    }
+  };
+  reader.onerror = () => showToast('Impossible de lire le fichier');
+  reader.readAsText(file, 'UTF-8');
+}
+
+// Parser CSV simple, gère les virgules, point-virgules, tabulations, guillemets
+function parseCSV(text) {
+  text = text.replace(/^\uFEFF/, ''); // BOM UTF-8
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length < 2) throw new Error('CSV vide ou invalide');
+
+  // Détection séparateur : compte les occurrences sur la 1ère ligne
+  const sep = [',', ';', '\t'].sort((a, b) =>
+    (lines[0].split(b).length - 1) - (lines[0].split(a).length - 1)
+  )[0];
+
+  const parseLine = (line) => {
+    const cells = [];
+    let cur = '', inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i+1] === '"') { cur += '"'; i++; }
+        else inQuotes = !inQuotes;
+      } else if (ch === sep && !inQuotes) {
+        cells.push(cur);
+        cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    cells.push(cur);
+    return cells.map(c => c.trim());
+  };
+
+  const headers = parseLine(lines[0]);
+  const rows = lines.slice(1).map(parseLine);
+  return { headers, rows };
+}
+
+function renderCSVPreview() {
+  document.getElementById('csvFilename').textContent = csvData.filename;
+  document.getElementById('csvStats').textContent =
+    `${csvData.rows.length} lignes · ${csvData.headers.length} colonnes · ${(csvData.size / 1024).toFixed(1)} KB`;
+
+  const table = document.getElementById('csvTable');
+  table.innerHTML = '';
+
+  // Header
+  const thead = document.createElement('thead');
+  const tr = document.createElement('tr');
+  csvData.headers.forEach(h => {
+    const th = document.createElement('th');
+    th.textContent = h;
+    tr.appendChild(th);
+  });
+  thead.appendChild(tr);
+  table.appendChild(thead);
+
+  // Body (preview 8 lignes max)
+  const tbody = document.createElement('tbody');
+  csvData.rows.slice(0, 8).forEach(row => {
+    const tr2 = document.createElement('tr');
+    row.forEach(cell => {
+      const td = document.createElement('td');
+      td.textContent = cell;
+      tr2.appendChild(td);
+    });
+    tbody.appendChild(tr2);
+  });
+  table.appendChild(tbody);
+
+  csvPreview.style.display = 'block';
+}
+
+document.getElementById('csvRemove').addEventListener('click', () => {
+  csvData = null;
+  csvInput.value = '';
+  csvPreview.style.display = 'none';
+  document.getElementById('step2Next').disabled = true;
+});
+
+document.getElementById('step2Next').addEventListener('click', () => {
+  if (!csvData) {
+    showToast('Veuillez uploader un CSV');
+    return;
+  }
+  renderMappingUI();
+  goToStep(3);
+});
+
+// ============================================================
+// STEP 3 — MAPPING COLONNES
+// ============================================================
+// Champs Mirow attendus par catégorie
+const MIROW_FIELDS = [
+  { key: 'c',  label: 'Couleur (hex #RRGGBB)', required: true,  hint: 'Code couleur de la teinte' },
+  { key: 'n',  label: 'Nom de la teinte',       required: true,  hint: 'Ex: "Rose Poudré"' },
+  { key: 'p',  label: 'Nom du produit',         required: true,  hint: 'Ex: "Rouge Velours"' },
+  { key: 'b',  label: 'Marque',                 required: false, hint: 'Souvent = nom de la marque cliente' },
+  { key: 'pr', label: 'Prix',                   required: false, hint: 'Ex: "22,00 €"' },
+];
+
+const MIROW_CATEGORIES = [
+  { key: 'lips',      label: 'Lèvres',  icon: '💄' },
+  { key: 'eyes',      label: 'Yeux',    icon: '👁️' },
+  { key: 'blush',     label: 'Blush',   icon: '🌸' },
+  { key: 'brows',     label: 'Sourcils',icon: '✏️' },
+  { key: 'highlight', label: 'Éclat',   icon: '✨' },
+];
+
+// Mapping state : { lips: { c: 0, n: 1, p: 2, ... }, eyes: {...}, ... }
+// Valeur -1 = "Aucun" (catégorie ignorée pour ce champ)
+let mappingState = {};
+
+// Détection auto par mots-clés sur les headers CSV
+function autoDetectMapping() {
+  const headers = csvData.headers.map(h => h.toLowerCase());
+  const KEYWORDS = {
+    c:  ['hex', 'couleur', 'color', 'rgb', 'shade color', 'code couleur'],
+    n:  ['teinte', 'shade', 'shade name', 'nuance', 'tone'],
+    p:  ['nom', 'name', 'produit', 'product', 'titre', 'reference', 'référence'],
+    b:  ['marque', 'brand'],
+    pr: ['prix', 'price', 'tarif', 'montant'],
+  };
+  const guess = {};
+  for (const [field, kws] of Object.entries(KEYWORDS)) {
+    let idx = -1;
+    for (const kw of kws) {
+      idx = headers.findIndex(h => h.includes(kw));
+      if (idx !== -1) break;
+    }
+    guess[field] = idx;
+  }
+  return guess;
+}
+
+function detectCategoryFromHeaders() {
+  // Si une colonne du CSV indique la catégorie (ex: "type", "catégorie"),
+  // on tentera de filtrer par catégorie. Pour Phase 1 : on met tout dans "lips" par défaut.
+  return null;
+}
+
+function renderMappingUI() {
+  const container = document.getElementById('mappingContainer');
+  container.innerHTML = '';
+
+  // Détection auto
+  const autoGuess = autoDetectMapping();
+
+  // Pour Phase 1 : on demande un mapping par catégorie. La marque pourra
+  // soit (a) avoir un seul CSV "lips" → on coche juste lèvres
+  //         (b) avoir un CSV unifié avec une colonne "catégorie" → futur
+  // Logique actuelle : l'utilisateur active les catégories pertinentes
+  // et chaque catégorie active utilise les mêmes colonnes mappées.
+
+  MIROW_CATEGORIES.forEach(cat => {
+    mappingState[cat.key] = { enabled: cat.key === 'lips', mapping: { ...autoGuess } };
+
+    const card = document.createElement('div');
+    card.className = 'mapping-card';
+    card.innerHTML = `
+      <div class="mapping-cat-title">
+        <input type="checkbox" id="cat-${cat.key}-enabled" ${cat.key === 'lips' ? 'checked' : ''} style="margin-right:8px;">
+        <label for="cat-${cat.key}-enabled" style="cursor:pointer;display:flex;align-items:center;gap:8px;">
+          <span>${cat.icon}</span>
+          <span>${cat.label}</span>
+        </label>
+        <span class="mapping-cat-title-count" id="cat-${cat.key}-count">${csvData.rows.length} produits</span>
+      </div>
+      <div class="mapping-grid" id="cat-${cat.key}-fields"></div>
+    `;
+    container.appendChild(card);
+
+    const fieldsContainer = card.querySelector(`#cat-${cat.key}-fields`);
+    MIROW_FIELDS.forEach(field => {
+      const div = document.createElement('div');
+      div.className = 'form-field';
+      div.innerHTML = `
+        <label class="form-label">${field.label}${field.required ? ' *' : ''}</label>
+        <select class="form-select" data-cat="${cat.key}" data-field="${field.key}">
+          <option value="-1">— Aucun (ignorer)</option>
+          ${csvData.headers.map((h, i) => `<option value="${i}" ${i === autoGuess[field.key] ? 'selected' : ''}>${h}</option>`).join('')}
+        </select>
+        <div class="form-hint">${field.hint}</div>
+      `;
+      fieldsContainer.appendChild(div);
+    });
+
+    // Toggle catégorie active
+    card.querySelector(`#cat-${cat.key}-enabled`).addEventListener('change', (e) => {
+      mappingState[cat.key].enabled = e.target.checked;
+      fieldsContainer.style.opacity = e.target.checked ? '1' : '0.4';
+      fieldsContainer.style.pointerEvents = e.target.checked ? '' : 'none';
+    });
+    if (cat.key !== 'lips') {
+      fieldsContainer.style.opacity = '0.4';
+      fieldsContainer.style.pointerEvents = 'none';
+    }
+  });
+
+  // Listener sur changement de mapping
+  container.addEventListener('change', (e) => {
+    const sel = e.target;
+    if (sel.tagName === 'SELECT' && sel.dataset.cat) {
+      mappingState[sel.dataset.cat].mapping[sel.dataset.field] = parseInt(sel.value);
+    }
+  });
+}
+
+document.getElementById('step3Next').addEventListener('click', () => {
+  generateConfig();
+  goToStep(4);
+});
+
+// ============================================================
+// STEP 4 — PREVIEW + EXPORT
+// ============================================================
+let generatedConfig = null;
+let generatedJSON = '';
+
+function generateConfig() {
+  const brandId    = document.getElementById('brandId').value.trim();
+  const brandName  = document.getElementById('brandName').value.trim();
+  const brandLogo  = document.getElementById('brandLogo').value.trim();
+  const brandLogoAccent = document.getElementById('brandLogoAccent').value.trim() || brandLogo[0] || 'o';
+  const brandWebsite = document.getElementById('brandWebsite').value.trim();
+  const brandTagline = document.getElementById('brandTagline').value.trim();
+  const brandPlan    = document.getElementById('brandPlan').value;
+  const brandCartUrl = document.getElementById('brandCartUrl').value.trim();
+  const primary    = document.getElementById('brandPrimary').value;
+  const accent     = document.getElementById('brandAccent').value;
+  const voidC      = document.getElementById('brandVoid').value;
+  const surfaceC   = document.getElementById('brandSurface').value;
+
+  // Construction du catalogue par catégorie
+  const catalog = {};
+  let totalProducts = 0;
+  MIROW_CATEGORIES.forEach(cat => {
+    const state = mappingState[cat.key];
+    if (!state.enabled) {
+      catalog[cat.key] = null;
+      return;
+    }
+    const mapping = state.mapping;
+    const items = csvData.rows.map(row => {
+      const item = {};
+      for (const field of MIROW_FIELDS) {
+        const colIdx = mapping[field.key];
+        if (colIdx >= 0 && colIdx < row.length) {
+          item[field.key] = row[colIdx] || '';
+        } else if (field.key === 'b') {
+          item.b = brandName;
+        }
+      }
+      // Validation : on ignore les rows sans couleur valide
+      if (!item.c || !/^#?[0-9A-Fa-f]{3,8}$/.test(item.c.trim())) return null;
+      // Normaliser la couleur (#xxxxxx)
+      item.c = item.c.trim();
+      if (!item.c.startsWith('#')) item.c = '#' + item.c;
+      return item;
+    }).filter(Boolean);
+
+    catalog[cat.key] = items;
+    totalProducts += items.length;
+  });
+
+  // Construction de la config finale
+  generatedConfig = {
+    plan: brandPlan,
+    identity: {
+      name: brandName,
+      logo: { type: 'text', value: brandLogo, accentChar: brandLogoAccent },
+      tagline: brandTagline || `Bienvenue chez ${brandName}`,
+      website: brandWebsite || '',
+    },
+    theme: {
+      primary:  primary,
+      accent:   accent,
+      void:     voidC,
+      surface:  surfaceC,
+      cream:    '#F0ECE6',
+      gradient: `linear-gradient(135deg, ${primary} 0%, ${accent} 100%)`,
+    },
+    catalog: catalog,
+    looks: null,
+  };
+  if (brandCartUrl) generatedConfig.cartUrl = brandCartUrl;
+
+  // JSON formaté pour intégration dans BRAND_REGISTRY
+  generatedJSON = `  ${JSON.stringify(brandId)}: ${JSON.stringify(generatedConfig, null, 2).replace(/\n/g, '\n  ')},`;
+
+  // Render preview
+  renderPreview(totalProducts);
+}
+
+function renderPreview(totalProducts) {
+  const summary = document.getElementById('previewSummary');
+  const brandId = document.getElementById('brandId').value.trim();
+  const brandName = document.getElementById('brandName').value.trim();
+
+  const enabledCats = MIROW_CATEGORIES.filter(c => mappingState[c.key].enabled);
+  const catCounts = enabledCats.map(c => `${c.label}: ${(generatedConfig.catalog[c.key] || []).length}`).join(' · ');
+
+  summary.innerHTML = `
+    <div class="preview-stat">
+      <div class="preview-stat-label">Marque</div>
+      <div class="preview-stat-value">${brandName}</div>
+    </div>
+    <div class="preview-stat">
+      <div class="preview-stat-label">Plan</div>
+      <div class="preview-stat-value">${generatedConfig.plan}</div>
+    </div>
+    <div class="preview-stat">
+      <div class="preview-stat-label">Produits</div>
+      <div class="preview-stat-value">${totalProducts}</div>
+    </div>
+    <div class="preview-stat">
+      <div class="preview-stat-label">Catégories</div>
+      <div class="preview-stat-value">${enabledCats.length}</div>
+    </div>
+  `;
+
+  document.getElementById('previewJson').textContent = generatedJSON;
+}
+
+document.getElementById('copyJsonBtn').addEventListener('click', () => {
+  navigator.clipboard.writeText(generatedJSON).then(() => {
+    showToast('JSON copié dans le presse-papier');
+  }).catch(() => {
+    showToast('Erreur de copie — sélectionnez manuellement');
+  });
+});
+
+document.getElementById('testWidgetBtn').addEventListener('click', () => {
+  // Sauvegarde dans localStorage pour test sans push GitHub
+  const brandId = document.getElementById('brandId').value.trim();
+  try {
+    const existing = JSON.parse(localStorage.getItem('mirow_test_brands') || '{}');
+    existing[brandId] = generatedConfig;
+    localStorage.setItem('mirow_test_brands', JSON.stringify(existing));
+    showToast('Sauvegardé · Ouverture du widget...');
+    setTimeout(() => {
+      window.open(`./index.html?brand=${brandId}&testBrands=1`, '_blank');
+    }, 600);
+  } catch (e) {
+    showToast('Erreur de sauvegarde');
+  }
+});
+
+document.getElementById('restartBtn').addEventListener('click', () => {
+  if (!confirm('Repartir de zéro ? Les données actuelles seront perdues.')) return;
+  // Reset complet
+  document.querySelectorAll('input[type="text"], input[type="url"]').forEach(i => {
+    if (!i.id.includes('Picker')) {
+      if (i.id === 'brandPrimary') i.value = '#A855F7';
+      else if (i.id === 'brandAccent') i.value = '#EC4899';
+      else if (i.id === 'brandVoid') i.value = '#09090F';
+      else if (i.id === 'brandSurface') i.value = '#131318';
+      else i.value = '';
+    }
+  });
+  ['brandPrimary', 'brandAccent', 'brandVoid', 'brandSurface'].forEach(id => {
+    document.getElementById(id).dispatchEvent(new Event('input'));
+  });
+  document.getElementById('brandId').dataset.manuallyEdited = '';
+  csvData = null;
+  csvInput.value = '';
+  csvPreview.style.display = 'none';
+  document.getElementById('step2Next').disabled = true;
+  goToStep(1);
+});
+
+// ============================================================
+// TOAST
+// ============================================================
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+</script>
+
+</body>
+</html>
