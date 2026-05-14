@@ -1996,6 +1996,251 @@ if (FOCUS_MODE_ACTIVE) {
   console.log('[Mirow] Focus product mode:', FOCUS_PRODUCT);
 }
 
+// ============================================================
+// MIROW ANALYTICS TRACKER — API publique + auto-tracking
+// ============================================================
+// Architecture :
+//  - API publique window.Mirow.track(eventName, data)
+//  - Storage localStorage par marque (clé "mirow_events_<brandId>")
+//  - Session unique générée par chargement de page
+//  - Granularité d'export contrôlée par le plan (Starter/Growth/Premium)
+//
+// Events principaux trackés (auto par Mirow ou manuels par la marque) :
+//  - try_click          : clic sur "Essayer" page produit marque (manuel)
+//  - try_on_start       : caméra activée + tracking initié (auto)
+//  - shade_clicked      : changement de teinte (auto)
+//  - finish_changed     : mat/glossy/metallic (auto)
+//  - look_applied       : look pré-configuré sélectionné (auto)
+//  - compare_opened     : mode comparaison activé (auto)
+//  - photo_captured     : photo prise (auto)
+//  - photo_shared       : partage Web Share (auto)
+//  - add_to_cart        : produit ajouté au panier (auto)
+//  - session_end        : fermeture/sortie (auto via beforeunload)
+// ============================================================
+
+const MIROW_STORAGE_KEY = `mirow_events_${ACTIVE_BRAND_ID}`;
+const MIROW_SESSION_KEY = `mirow_session_${ACTIVE_BRAND_ID}`;
+const MIROW_MAX_EVENTS = 5000; // safeguard contre overflow localStorage
+
+/**
+ * Génère un ID de session unique pour la page courante.
+ * Persiste 30 min via sessionStorage pour reconnaître les visites groupées.
+ */
+function getOrCreateSessionId() {
+  try {
+    const existing = sessionStorage.getItem(MIROW_SESSION_KEY);
+    if (existing) {
+      const parsed = JSON.parse(existing);
+      if (Date.now() - parsed.lastSeen < 30 * 60 * 1000) {
+        parsed.lastSeen = Date.now();
+        sessionStorage.setItem(MIROW_SESSION_KEY, JSON.stringify(parsed));
+        return parsed.id;
+      }
+    }
+  } catch (e) { /* sessionStorage indisponible (mode incognito strict) */ }
+
+  const newId = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+  try {
+    sessionStorage.setItem(MIROW_SESSION_KEY, JSON.stringify({
+      id: newId,
+      lastSeen: Date.now(),
+      startedAt: Date.now(),
+    }));
+  } catch (e) {}
+  return newId;
+}
+
+const MIROW_SESSION_ID = getOrCreateSessionId();
+
+/**
+ * Enregistre un événement analytics.
+ * Stockage localStorage par marque + ring buffer (max 5000 events).
+ */
+function mirowTrack(eventName, data) {
+  if (!eventName) return;
+
+  const event = {
+    e:  eventName,
+    t:  Date.now(),
+    s:  MIROW_SESSION_ID,
+    b:  ACTIVE_BRAND_ID,
+    p:  ACTIVE_BRAND.plan,
+    fp: FOCUS_PRODUCT_ID || null,
+    d:  data || {},
+  };
+
+  try {
+    const raw = localStorage.getItem(MIROW_STORAGE_KEY);
+    let events = raw ? JSON.parse(raw) : [];
+    events.push(event);
+    // Ring buffer : on garde les MIROW_MAX_EVENTS derniers
+    if (events.length > MIROW_MAX_EVENTS) {
+      events = events.slice(-MIROW_MAX_EVENTS);
+    }
+    localStorage.setItem(MIROW_STORAGE_KEY, JSON.stringify(events));
+  } catch (err) {
+    console.warn('[Mirow] Track storage failed:', err);
+  }
+
+  // Hook custom : la marque peut écouter window event pour brancher
+  // son propre système (GA, Mixpanel, webhook serveur, etc.)
+  try {
+    window.dispatchEvent(new CustomEvent('mirow:track', { detail: event }));
+  } catch (e) {}
+}
+
+/**
+ * Récupère tous les events stockés pour la marque active.
+ */
+function mirowGetEvents() {
+  try {
+    const raw = localStorage.getItem(MIROW_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+/**
+ * Efface tous les events stockés (utilisé par le dashboard pour reset).
+ */
+function mirowClearEvents() {
+  try {
+    localStorage.removeItem(MIROW_STORAGE_KEY);
+  } catch (e) {}
+}
+
+/**
+ * Retourne des stats agrégées calculées on-the-fly.
+ * Profondeur des stats selon le plan de la marque.
+ */
+function mirowGetStats(options) {
+  options = options || {};
+  const since = options.since || 0;
+  const events = mirowGetEvents().filter(e => e.t >= since);
+
+  // Stats de base (toujours disponibles)
+  const totalEvents = events.length;
+  const sessions = new Set(events.map(e => e.s));
+  const totalSessions = sessions.size;
+
+  // Compteurs par type d'événement
+  const eventCounts = {};
+  events.forEach(e => {
+    eventCounts[e.e] = (eventCounts[e.e] || 0) + 1;
+  });
+
+  // Top teintes testées (depuis shade_clicked events)
+  const shadeCounts = {};
+  events.filter(e => e.e === 'shade_clicked').forEach(e => {
+    const key = (e.d.category || '?') + ' · ' + (e.d.shadeName || e.d.shadeColor || '?');
+    shadeCounts[key] = (shadeCounts[key] || 0) + 1;
+  });
+  const topShades = Object.entries(shadeCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([name, count]) => ({ name, count }));
+
+  // Top produits ajoutés au panier
+  const cartProducts = {};
+  events.filter(e => e.e === 'add_to_cart').forEach(e => {
+    const key = e.d.productName || e.d.productId || '?';
+    cartProducts[key] = (cartProducts[key] || 0) + 1;
+  });
+  const topCart = Object.entries(cartProducts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([name, count]) => ({ name, count }));
+
+  // Taux de conversion (try → cart)
+  const tryOnSessions = new Set(
+    events.filter(e => e.e === 'try_on_start').map(e => e.s)
+  );
+  const cartSessions = new Set(
+    events.filter(e => e.e === 'add_to_cart').map(e => e.s)
+  );
+  const conversionRate = tryOnSessions.size > 0
+    ? (cartSessions.size / tryOnSessions.size) * 100
+    : 0;
+
+  // Heatmap horaire (24 buckets)
+  const hourlyBuckets = new Array(24).fill(0);
+  events.filter(e => e.e === 'try_on_start').forEach(e => {
+    const hour = new Date(e.t).getHours();
+    hourlyBuckets[hour]++;
+  });
+
+  return {
+    plan:           ACTIVE_BRAND.plan,
+    brandId:        ACTIVE_BRAND_ID,
+    brandName:      ACTIVE_BRAND.identity.name,
+    totalEvents,
+    totalSessions,
+    eventCounts,
+    topShades,
+    topCart,
+    tryOnSessions:  tryOnSessions.size,
+    cartSessions:   cartSessions.size,
+    conversionRate,
+    hourlyBuckets,
+    firstEvent:     events.length > 0 ? events[0].t : null,
+    lastEvent:      events.length > 0 ? events[events.length - 1].t : null,
+  };
+}
+
+/**
+ * Export CSV des events bruts.
+ */
+function mirowExportCSV() {
+  const events = mirowGetEvents();
+  if (events.length === 0) return '';
+
+  const headers = ['timestamp', 'iso_date', 'session', 'brand', 'plan', 'event', 'focus_product', 'data'];
+  const rows = events.map(e => [
+    e.t,
+    new Date(e.t).toISOString(),
+    e.s,
+    e.b,
+    e.p,
+    e.e,
+    e.fp || '',
+    JSON.stringify(e.d || {}),
+  ]);
+
+  const escapeCSV = v => {
+    const s = String(v);
+    if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  };
+
+  return [headers, ...rows].map(r => r.map(escapeCSV).join(',')).join('\n');
+}
+
+// API publique exposée sur window.Mirow
+window.Mirow = window.Mirow || {};
+window.Mirow.track       = mirowTrack;
+window.Mirow.getEvents   = mirowGetEvents;
+window.Mirow.getStats    = mirowGetStats;
+window.Mirow.exportCSV   = mirowExportCSV;
+window.Mirow.clearEvents = mirowClearEvents;
+window.Mirow.sessionId   = MIROW_SESSION_ID;
+window.Mirow.brand       = ACTIVE_BRAND_ID;
+window.Mirow.plan        = ACTIVE_BRAND.plan;
+
+console.log('[Mirow] Analytics tracker ready. API: window.Mirow.track(event, data)');
+
+// Auto-track le chargement initial de la page
+mirowTrack('page_loaded', {
+  url: window.location.pathname + window.location.search,
+  focusProduct: FOCUS_PRODUCT_ID,
+  userAgent: navigator.userAgent.slice(0, 120),
+});
+
+// Track la fermeture de session
+window.addEventListener('beforeunload', () => {
+  mirowTrack('session_end', { duration: Date.now() - (parseInt(MIROW_SESSION_ID.split('_')[1]) || Date.now()) });
+});
+
 // Looks pré-configurés (combos de teintes)
 const LOOKS = [
   { id:'natural', name:'Naturel',
@@ -2154,6 +2399,13 @@ function renderSwatches() {
       makeup[currentCat] = { c, op: currentOp };
       updateProduct();
       renderSwatches();
+      // ANALYTICS : teinte sélectionnée
+      if (typeof mirowTrack === 'function') mirowTrack('shade_clicked', {
+        category:    currentCat,
+        shadeColor:  c,
+        shadeName:   n,
+        shadeId:     id,
+      });
     });
     grid.appendChild(sw);
   });
@@ -2189,6 +2441,11 @@ function renderLooks() {
       }
       renderSwatches();
       updateProduct();
+      // ANALYTICS : look pré-configuré sélectionné
+      if (typeof mirowTrack === 'function') mirowTrack('look_applied', {
+        lookId:   look.id,
+        lookName: look.name,
+      });
     });
     grid.appendChild(card);
   });
@@ -2276,6 +2533,11 @@ document.getElementById('lipStyleRow').addEventListener('click', (e) => {
   currentLipStyle = btn.dataset.style;
   document.querySelectorAll('#lipStyleRow .brow-style-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+  // ANALYTICS : finish lèvres changé
+  if (typeof mirowTrack === 'function') mirowTrack('finish_changed', {
+    category: 'lips',
+    finish:   currentLipStyle,
+  });
 });
 
 // ============================================================
@@ -2367,6 +2629,11 @@ async function startCamera() {
     initFaceMesh();
     // Afficher le bouton capture (la cam\u00e9ra est maintenant active)
     if (typeof showCaptureButton === 'function') showCaptureButton();
+    // ANALYTICS : try-on session démarrée
+    if (typeof mirowTrack === 'function') mirowTrack('try_on_start', {
+      focusProduct: FOCUS_PRODUCT_ID,
+      category: currentCat,
+    });
   } catch (e) {
     showCameraError(e);
   }
@@ -2572,6 +2839,11 @@ function enterCompareMode() {
   document.getElementById('compareOverlay').classList.add('active');
   document.getElementById('compareTriggerBtn').classList.add('active');
   updateCompareLabels();
+  // ANALYTICS : mode comparaison activé
+  if (typeof mirowTrack === 'function') mirowTrack('compare_opened', {
+    lookA: compareLookA,
+    lookB: compareLookB,
+  });
 }
 
 /**
@@ -3722,10 +3994,25 @@ async function triggerCapture() {
     lastCaptureDataUrl = URL.createObjectURL(blob);
     photoPreview.src = lastCaptureDataUrl;
     photoModal.classList.add('show');
+    // ANALYTICS : photo capturée
+    if (typeof mirowTrack === 'function') mirowTrack('photo_captured', {
+      activeLook: getCurrentMakeupSnapshot(),
+    });
   } catch (err) {
     console.error('[Mirow] Capture error:', err);
     showToast('Erreur de capture');
   }
+}
+
+/**
+ * Retourne un snapshot du maquillage actif pour les analytics.
+ */
+function getCurrentMakeupSnapshot() {
+  const snap = {};
+  for (const cat of ['lips', 'eyes', 'blush', 'brows', 'highlight']) {
+    if (makeup[cat] && makeup[cat].c) snap[cat] = makeup[cat].c;
+  }
+  return snap;
 }
 
 /**
@@ -3740,6 +4027,8 @@ function downloadPhoto() {
   link.click();
   document.body.removeChild(link);
   showToast('Photo téléchargée');
+  // ANALYTICS : photo téléchargée
+  if (typeof mirowTrack === 'function') mirowTrack('photo_downloaded', {});
 }
 
 /**
@@ -3761,6 +4050,8 @@ async function sharePhoto() {
         text: 'Try it. Own it. Wear it. ✨',
       });
       showToast('Partagé !');
+      // ANALYTICS : partage réussi
+      if (typeof mirowTrack === 'function') mirowTrack('photo_shared', { method: 'web_share' });
     } catch (err) {
       // L'utilisateur a annulé, ou erreur
       if (err.name !== 'AbortError') {
@@ -3874,6 +4165,9 @@ function triggerAddToCart() {
 
   // 3. Toast de confirmation côté Mirow
   showAddToCartToast(productData);
+
+  // 4. ANALYTICS : ajout au panier
+  if (typeof mirowTrack === 'function') mirowTrack('add_to_cart', productData);
 
   console.log('[Mirow] Add to cart triggered:', productData);
 }
