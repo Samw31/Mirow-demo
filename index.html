@@ -323,6 +323,61 @@ body {
 }
 .cta-gradient:active { transform: translateY(0); }
 
+/* Bouton discret "Pas de caméra ? Uploader une photo" sous le CTA */
+.upload-photo-btn {
+  background: transparent;
+  border: none;
+  margin-top: 14px;
+  padding: 8px 14px;
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.upload-photo-btn:hover { color: var(--cream); }
+.upload-photo-link {
+  background: var(--gradient-neon);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: rgba(168, 85, 247, 0.4);
+  text-underline-offset: 2px;
+}
+
+/* Bouton flottant retour en mode photo (à côté du capture button) */
+.photo-back-btn {
+  position: absolute;
+  bottom: 24px;
+  left: 24px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(9, 9, 15, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--cream);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 15;
+  transition: transform 0.2s, background 0.2s, border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.photo-back-btn:hover {
+  transform: scale(1.06);
+  border-color: rgba(168, 85, 247, 0.5);
+}
+.photo-back-btn:active { transform: scale(0.96); }
+@media (max-width: 640px) {
+  .photo-back-btn { width: 44px; height: 44px; bottom: 16px; left: 16px; }
+}
+
 /* État erreur caméra — message utilisateur clair */
 .cam-error {
   display: none;
@@ -1382,6 +1437,14 @@ input[type=range]::-moz-range-thumb {
     <div class="cam-area">
       <video id="video" autoplay muted playsinline></video>
       <canvas id="outputCanvas"></canvas>
+      <!-- Image pour le mode photo (cachée par défaut, affichée à la place de video) -->
+      <img id="photoView" style="display:none; position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1);" alt="">
+      <!-- Bouton flottant retour (mode photo uniquement) -->
+      <button class="photo-back-btn" id="photoBackBtn" aria-label="Changer de photo" style="display:none;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <path d="M3 12L7 8M3 12L7 16M3 12H16C19 12 21 14 21 17V19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
 
       <!-- Flash blanc pendant la capture -->
       <div class="capture-flash" id="captureFlash"></div>
@@ -1391,6 +1454,12 @@ input[type=range]::-moz-range-thumb {
         <div class="cam-frame"></div>
         <p class="cam-hint">Positionnez votre visage dans le cadre</p>
         <button class="cta-gradient" id="startBtn">Activer la caméra</button>
+
+        <!-- Option upload photo (discret) -->
+        <button class="upload-photo-btn" id="uploadPhotoBtn" type="button">
+          Pas de caméra ? <span class="upload-photo-link">Uploader une photo</span>
+        </button>
+        <input type="file" id="photoUploadInput" accept="image/*" style="display:none;">
 
         <!-- État d'erreur (caché par défaut) -->
         <div class="cam-error" id="camError">
@@ -3908,6 +3977,302 @@ function applyHighlight(lm, W, H) {
 }
 
 // ============================================================
+// PHOTO UPLOAD MODE — alternative à la caméra
+// ============================================================
+// L'utilisateur peut uploader une photo statique. Le maquillage
+// s'applique dessus en temps réel quand il change de teinte.
+// Différences clés vs mode caméra :
+//  - 1 seule détection MediaPipe (pas de loop 30fps)
+//  - Re-rendu Canvas overlay uniquement quand la teinte change
+//  - Photo visible via balise <img> au lieu de <video>
+// ============================================================
+
+const PHOTO_UPLOAD_MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+const photoView      = document.getElementById('photoView');
+const photoBackBtn   = document.getElementById('photoBackBtn');
+const photoUploadInp = document.getElementById('photoUploadInput');
+const uploadPhotoBtn = document.getElementById('uploadPhotoBtn');
+
+// État du mode photo
+let photoMode = false;
+let photoLandmarks = null;  // landmarks détectés (1 seule fois) sur la photo
+let photoImage = null;      // <img> chargée
+
+/**
+ * Déclenche l'upload (clic sur input file caché)
+ */
+function openPhotoUploadDialog() {
+  photoUploadInp.value = ''; // reset pour permettre re-upload même fichier
+  photoUploadInp.click();
+}
+
+/**
+ * Handler quand l'utilisateur a sélectionné un fichier
+ */
+async function handlePhotoFile(file) {
+  if (!file) return;
+
+  // Validation taille
+  if (file.size > PHOTO_UPLOAD_MAX_SIZE) {
+    showPhotoError(`Photo trop lourde (max ${PHOTO_UPLOAD_MAX_SIZE / 1024 / 1024} MB). Veuillez en choisir une plus petite.`);
+    return;
+  }
+
+  // Validation type basique (le navigateur convertit HEIC/WEBP automatiquement)
+  if (!file.type.startsWith('image/')) {
+    showPhotoError('Le fichier sélectionné n\'est pas une image valide.');
+    return;
+  }
+
+  // Afficher l'overlay de chargement
+  setUploadStatus('Chargement de la photo...');
+
+  try {
+    const dataUrl = await readFileAsDataURL(file);
+    const img = await loadImage(dataUrl);
+
+    // Vérification dimensions minimales
+    if (img.naturalWidth < 200 || img.naturalHeight < 200) {
+      throw new Error('Photo trop petite (min 200x200 px)');
+    }
+
+    setUploadStatus('Détection du visage...');
+
+    // Détection unique du visage via MediaPipe
+    const landmarks = await detectFaceOnImage(img);
+
+    if (!landmarks) {
+      throw new Error('Aucun visage détecté sur cette photo. Essayez une photo plus claire, de face, sans lunettes de soleil.');
+    }
+
+    // Tout est OK, on bascule en mode photo
+    enterPhotoMode(img, landmarks);
+
+    // ANALYTICS : photo uploadée avec succès
+    if (typeof mirowTrack === 'function') mirowTrack('photo_uploaded', {
+      width:  img.naturalWidth,
+      height: img.naturalHeight,
+      size:   file.size,
+    });
+  } catch (err) {
+    console.error('[Mirow] Photo upload error:', err);
+    showPhotoError(err.message || 'Erreur lors du chargement de la photo');
+  }
+}
+
+/**
+ * Lecture du fichier en data URL (compatible HEIC, WEBP, etc. via navigateur)
+ */
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = () => reject(new Error('Impossible de lire le fichier'));
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Chargement de l'image dans un <img>
+ */
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Format d\'image non supporté par votre navigateur'));
+    img.src = src;
+  });
+}
+
+/**
+ * Détection unique du visage sur une image statique via MediaPipe FaceMesh.
+ * Retourne null si aucun visage trouvé.
+ */
+async function detectFaceOnImage(img) {
+  return new Promise((resolve, reject) => {
+    if (typeof FaceMesh === 'undefined') {
+      reject(new Error('MediaPipe non chargé. Réessayez dans quelques secondes.'));
+      return;
+    }
+
+    // Instance temporaire de FaceMesh dédiée à la photo
+    // (séparée de celle utilisée en mode caméra pour éviter conflits)
+    const fm = new FaceMesh({
+      locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`,
+    });
+    fm.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,  // seuil plus bas pour photos
+      minTrackingConfidence: 0.5,
+    });
+
+    fm.onResults(results => {
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        resolve(results.multiFaceLandmarks[0]);
+      } else {
+        resolve(null); // pas d'erreur, juste pas de visage
+      }
+    });
+
+    fm.send({ image: img }).catch(err => reject(err));
+  });
+}
+
+/**
+ * Active le mode photo : affiche l'image, masque la vidéo,
+ * stocke les landmarks et déclenche un premier rendu.
+ */
+function enterPhotoMode(img, landmarks) {
+  photoMode = true;
+  photoImage = img;
+  photoLandmarks = landmarks;
+
+  // Cacher l'overlay d'accueil
+  camOverlay.classList.add('hidden');
+  hidePhotoError();
+
+  // Cacher la vidéo (si elle était active)
+  if (video.srcObject) {
+    video.srcObject.getTracks().forEach(t => t.stop());
+    video.srcObject = null;
+  }
+  video.style.display = 'none';
+
+  // Afficher la photo
+  photoView.src = img.src;
+  photoView.style.display = 'block';
+
+  // Adapter la taille du canvas au ratio de la photo
+  const W = img.naturalWidth;
+  const H = img.naturalHeight;
+  canvas.width = W;
+  canvas.height = H;
+
+  // Status bar
+  statusDot.classList.add('on');
+  statusText.textContent = 'Photo · Détection OK';
+
+  // Afficher bouton retour + bouton capture
+  photoBackBtn.style.display = 'flex';
+  if (typeof showCaptureButton === 'function') showCaptureButton();
+
+  // Premier rendu
+  renderPhotoFrame();
+
+  // ANALYTICS
+  if (typeof mirowTrack === 'function') mirowTrack('photo_mode_entered', {
+    width: W, height: H,
+  });
+}
+
+/**
+ * Rendu du maquillage sur la photo statique.
+ * Appelé à chaque changement de teinte / look / finish.
+ */
+function renderPhotoFrame() {
+  if (!photoMode || !photoLandmarks || !photoImage) return;
+  const W = canvas.width;
+  const H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  applyMakeupAR(photoLandmarks, W, H);
+}
+
+/**
+ * Quitte le mode photo et revient à l'écran d'accueil
+ */
+function exitPhotoMode() {
+  photoMode = false;
+  photoLandmarks = null;
+  photoImage = null;
+
+  photoView.style.display = 'none';
+  photoView.src = '';
+  video.style.display = '';
+  photoBackBtn.style.display = 'none';
+
+  // Effacer le canvas
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Reset statut
+  statusDot.classList.remove('on');
+  statusText.textContent = 'Prête à démarrer';
+
+  // Réafficher l'écran d'accueil
+  camOverlay.classList.remove('hidden');
+  hidePhotoError();
+
+  // Cacher le bouton capture
+  if (captureBtn) captureBtn.classList.remove('show');
+
+  // Reset tone matching pour la prochaine session
+  detectedTone = null;
+  toneRGB = null;
+
+  // ANALYTICS
+  if (typeof mirowTrack === 'function') mirowTrack('photo_mode_exited', {});
+}
+
+/**
+ * Affichage d'une erreur dans l'overlay caméra (en mode photo)
+ */
+function showPhotoError(msg) {
+  camError.classList.add('show');
+  errorTitle.textContent = 'Photo non utilisable';
+  errorMsg.textContent = msg;
+  // Cacher temporairement les autres boutons
+  startBtn.style.display = 'none';
+  uploadPhotoBtn.style.display = 'none';
+}
+
+function hidePhotoError() {
+  camError.classList.remove('show');
+  errorTitle.textContent = 'Caméra inaccessible';
+  errorMsg.textContent = '';
+  startBtn.style.display = '';
+  uploadPhotoBtn.style.display = '';
+}
+
+function setUploadStatus(msg) {
+  statusText.textContent = msg;
+}
+
+// ============================================================
+// PATCH déclencheurs re-render en mode photo
+// ============================================================
+// En mode photo, le maquillage doit se re-rendre à chaque changement
+// de teinte / look / finish / intensité. On hook tous les listeners
+// existants via délégation sur le panel.
+
+// Hook sur le slider d'intensité pour re-render en mode photo
+const opSliderEl = document.getElementById('opSlider');
+if (opSliderEl) {
+  opSliderEl.addEventListener('input', () => {
+    if (photoMode) requestAnimationFrame(renderPhotoFrame);
+  });
+}
+
+// Hook sur les sélecteurs de style (lèvres, sourcils, yeux)
+['lipStyleRow', 'browStyleRow', 'eyeStyleRow'].forEach(rowId => {
+  const row = document.getElementById(rowId);
+  if (row) {
+    row.addEventListener('click', () => {
+      if (photoMode) requestAnimationFrame(renderPhotoFrame);
+    });
+  }
+});
+
+// Hook délégué sur le panel pour capturer TOUS les clics (teintes, looks, catégories...)
+// On déclenche un re-render avec un léger délai pour laisser les autres handlers
+// (changement de currentColor, etc.) s'exécuter avant.
+document.querySelector('.panel').addEventListener('click', () => {
+  if (photoMode) {
+    // 2 RAF pour s'exécuter après les handlers natifs
+    requestAnimationFrame(() => requestAnimationFrame(renderPhotoFrame));
+  }
+}, true);
+
+// ============================================================
 // INITIALISATION
 // ============================================================
 
@@ -3917,6 +4282,13 @@ retryBtn.addEventListener('click', () => {
   resetCameraOverlay();
   startCamera();
 });
+
+// Bouton upload photo
+uploadPhotoBtn.addEventListener('click', openPhotoUploadDialog);
+photoUploadInp.addEventListener('change', (e) => {
+  handlePhotoFile(e.target.files[0]);
+});
+photoBackBtn.addEventListener('click', exitPhotoMode);
 
 // ============================================================
 // CAPTURE PHOTO + PARTAGE
