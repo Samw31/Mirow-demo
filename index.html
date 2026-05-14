@@ -1932,6 +1932,59 @@ function applyPlanFeatures() {
     const btn = document.getElementById('captureBtn');
     if (btn) btn.style.display = 'none !important';
   }
+
+  // Cacher les catégories que la marque n'a PAS dans son catalogue.
+  // Logique : une catégorie est considérée "absente" si la marque l'a
+  // explicitement définie à null OU à un tableau vide dans son brand.catalog
+  // ET QUE le catalogue de marque existe (sinon on garde tous les défauts Mirow).
+  hideEmptyCategories();
+}
+
+/**
+ * Cache les boutons de catégories pour lesquelles la marque n'a pas de produits.
+ * Évite que la cliente voie des teintes Mirow par défaut dans une catégorie
+ * non vendue par la marque (ex: Krème n'a que des lèvres → on cache Yeux/Blush/etc).
+ *
+ * Exception : pour 'mirow' (marque par défaut), on garde tout visible.
+ */
+function hideEmptyCategories() {
+  // Si on est sur la marque par défaut Mirow, on ne touche à rien
+  if (ACTIVE_BRAND_ID === 'mirow') return;
+
+  let firstAvailableCat = null;
+
+  ['lips', 'eyes', 'blush', 'brows', 'highlight'].forEach(cat => {
+    const items = PALETTES[cat];
+    const hasProducts = Array.isArray(items) && items.length > 0;
+
+    if (!hasProducts) {
+      // Pas de produits dans cette catégorie chez la marque → cacher le bouton
+      const btn = document.querySelector(`.cat-btn[data-cat="${cat}"]`);
+      if (btn) btn.style.display = 'none';
+    } else if (!firstAvailableCat) {
+      firstAvailableCat = cat;
+    }
+  });
+
+  // Si la catégorie active n'est plus visible (cachée), basculer sur la première dispo
+  if (firstAvailableCat) {
+    const activeBtn = document.querySelector('.cat-btn.active');
+    if (activeBtn && activeBtn.style.display === 'none') {
+      document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+      const newActive = document.querySelector(`.cat-btn[data-cat="${firstAvailableCat}"]`);
+      if (newActive) {
+        newActive.classList.add('active');
+        currentCat = firstAvailableCat;
+        const firstShade = (PALETTES[firstAvailableCat] || [])[0];
+        if (firstShade) {
+          currentColor = firstShade.c;
+          makeup[firstAvailableCat] = { c: firstShade.c, op: currentOp };
+        }
+        renderSwatches();
+        updateProduct();
+      }
+    }
+  }
 }
 
 // ============================================================
@@ -2006,14 +2059,36 @@ const DEFAULT_PALETTES = {
  */
 const PALETTES = (() => {
   const merged = {};
-  const brandCatalog = ACTIVE_BRAND.catalog || {};
+  // Si la marque a un catalogue (objet non-vide), on respecte ses choix :
+  //  - clé absente OU undefined → fallback Mirow (catalogue partagé)
+  //  - clé = null → catégorie INACTIVE chez cette marque (cachée du widget)
+  //  - clé = tableau non-vide → catalogue dédié marque
+  // Cas spécial : si brand.catalog est null/absent (cas Mirow par défaut),
+  // on utilise tout DEFAULT_PALETTES.
+  const hasBrandCatalog = ACTIVE_BRAND.catalog && typeof ACTIVE_BRAND.catalog === 'object';
+  const brandCatalog = hasBrandCatalog ? ACTIVE_BRAND.catalog : {};
   const maxShades = ACTIVE_PLAN.maxShades;
 
   for (const category of ['lips', 'eyes', 'blush', 'brows', 'highlight']) {
-    const brandPalette = brandCatalog[category];
-    // Si la marque a un catalogue pour cette catégorie, on l'utilise
-    // Sinon fallback sur DEFAULT_PALETTES
-    const source = (brandPalette && brandPalette.length > 0) ? brandPalette : DEFAULT_PALETTES[category];
+    let source;
+
+    if (hasBrandCatalog) {
+      const brandPalette = brandCatalog[category];
+      if (brandPalette === null) {
+        // Catégorie explicitement désactivée par la marque
+        source = [];
+      } else if (Array.isArray(brandPalette) && brandPalette.length > 0) {
+        // Catalogue dédié marque
+        source = brandPalette;
+      } else {
+        // Clé absente ou tableau vide → fallback Mirow par défaut
+        source = DEFAULT_PALETTES[category];
+      }
+    } else {
+      // Pas de brand.catalog → tout fallback Mirow
+      source = DEFAULT_PALETTES[category];
+    }
+
     // Application de la limite de teintes selon le plan
     // + génération automatique d'un ID stable pour chaque produit
     // Format : "category-index-slug" (ex: "lips-0-rouge-velours")
