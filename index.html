@@ -3392,7 +3392,8 @@ function applyLips(lm, W, H) {
   const styleParams = {
     matte: {
       // Mat : opaque, sans reflet, micro-grain
-      baseOp:        m.op * 0.85 * toneAdj.opMultiplier, // ajusté ton de peau
+      // baseOp boosté de 0.85 → 1.1 pour compenser le multiply final
+      baseOp:        Math.min(1.0, m.op * 1.1 * toneAdj.opMultiplier),
       lowerLightenR: 8,             // lèvre inférieure légèrement plus claire
       lowerLightenG: 4,
       lowerLightenB: 5,
@@ -3405,13 +3406,14 @@ function applyLips(lm, W, H) {
     },
     glossy: {
       // Glossy : effet humide central, lèvre inférieure plus claire
-      baseOp:        m.op * 0.7 * toneAdj.opMultiplier,
+      // baseOp boosté de 0.7 → 0.95 pour compenser le multiply
+      baseOp:        Math.min(1.0, m.op * 0.95 * toneAdj.opMultiplier),
       lowerLightenR: 25,
       lowerLightenG: 10,
       lowerLightenB: 15,
-      shineOp:       0.18,          // reflet humide visible
-      shineSize:     0.22,
-      sideShineOp:   0.06,          // léger highlight latéral
+      shineOp:       0.22,          // reflet humide plus visible (était 0.18)
+      shineSize:     0.24,          // reflet plus large
+      sideShineOp:   0.08,          // léger highlight latéral (était 0.06)
       saturationBoost: 1.0 * toneAdj.satBoost,
       blurAmount:    2.2,           // blur moyen pour fondu naturel
       grainNoise:    false,
@@ -3576,12 +3578,28 @@ function applyLips(lm, W, H) {
   }
 
   // ========================================================
-  // APPLICATION FINALE — blur ajusté selon le finish
+  // APPLICATION FINALE — blending réaliste
+  // --------------------------------------------------------
+  // POLISH : utilisation de 'multiply' pour les lèvres → simule
+  // une vraie couche de pigment qui respecte la luminosité naturelle
+  // (creux des lèvres restent foncés, bosses restent claires).
+  // En contrepartie on boost légèrement l'opacité pour compenser
+  // l'effet d'assombrissement du multiply.
   // ========================================================
   ctx.save();
   ctx.filter = `blur(${params.blurAmount}px)`;
+  // Mode de fusion adaptatif :
+  //  - matte/glossy : multiply (couche de pigment réaliste)
+  //  - metallic : source-over (effet "vernis" qui couvre)
+  ctx.globalCompositeOperation = style === 'metallic' ? 'source-over' : 'multiply';
+  // Pour le multiply, on doit boost l'alpha global car le mode
+  // assombrit les valeurs (sinon le rendu paraît trop discret)
+  ctx.globalAlpha = style === 'metallic' ? 1.0 : 1.25;
+  if (ctx.globalAlpha > 1) ctx.globalAlpha = 1; // cap à 1
   ctx.drawImage(tmpCanvases.lips, 0, 0);
   ctx.filter = 'none';
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
   ctx.restore();
 }
 
@@ -3727,11 +3745,25 @@ function applyEyes(lm, W, H) {
     tcShadow.fill();
   });
 
-  // Application de l'ombre avec blur (fondu naturel)
+  // ========================================================
+  // APPLICATION FINALE — blending réaliste pour ombre à paupière
+  // POLISH : 'soft-light' donne un effet "fard qui s'imprime"
+  // naturel sur la peau, plus réaliste que source-over plat.
+  // ========================================================
   ctx.save();
   ctx.filter = `blur(${params.blurAmount}px)`;
+  ctx.globalCompositeOperation = 'soft-light';
+  ctx.globalAlpha = 1.4; // boost pour compenser l'effet adoucissant du soft-light
+  if (ctx.globalAlpha > 1) ctx.globalAlpha = 1;
+  ctx.drawImage(tmpCanvases.eyes, 0, 0);
+  // Deuxième passe en mode normal à plus faible opacité
+  // pour conserver un minimum de saturation visible
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 0.4;
   ctx.drawImage(tmpCanvases.eyes, 0, 0);
   ctx.filter = 'none';
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
   ctx.restore();
 
   // ========================================================
@@ -3844,13 +3876,19 @@ function applyBlush(lm, W, H) {
     const radiusY = faceWidth * 0.09; // largeur (perpendiculaire)
 
     // Gradient avec cœur saturé qui se dilue vers les bords
+    // POLISH : opacités boostées (×1.5) pour compenser le multiply final
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radiusX);
-    grad.addColorStop(0,    `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.45 * opMul})`);
-    grad.addColorStop(0.35, `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.25 * opMul})`);
-    grad.addColorStop(0.7,  `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.10 * opMul})`);
+    grad.addColorStop(0,    `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.65 * opMul})`);
+    grad.addColorStop(0.35, `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.38 * opMul})`);
+    grad.addColorStop(0.7,  `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.15 * opMul})`);
     grad.addColorStop(1,    'rgba(0,0,0,0)');
 
     ctx.save();
+    // POLISH : multiply pour que le blush respecte les ombres
+    // naturelles du visage (creux des joues restent visibles)
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.globalAlpha = 1.3; // boost pour compenser
+    if (ctx.globalAlpha > 1) ctx.globalAlpha = 1;
     ctx.filter = 'blur(8px)'; // blur plus fort pour fondu très diffus
     ctx.translate(cx, cy);
     ctx.rotate(angle); // rotation vers la tempe = effet lifté
@@ -3860,6 +3898,8 @@ function applyBlush(lm, W, H) {
     ctx.fillStyle = grad;
     ctx.fill();
     ctx.filter = 'none';
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
     ctx.restore();
   });
 }
@@ -4002,8 +4042,15 @@ function applyBrows(lm, W, H) {
 
     ctx.save();
     ctx.filter = `blur(${blurAmount}px)`;
+    // POLISH : multiply pour que la couleur s'ajoute aux poils existants
+    // au lieu de les écraser. Effet "rehaussé" plus naturel.
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.globalAlpha = 1.2;
+    if (ctx.globalAlpha > 1) ctx.globalAlpha = 1;
     ctx.drawImage(tmpCanvases[name], 0, 0);
     ctx.filter = 'none';
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
     ctx.restore();
   });
 }
