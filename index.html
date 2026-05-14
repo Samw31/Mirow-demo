@@ -1765,6 +1765,30 @@ const BRAND_REGISTRY = {
 };
 
 /**
+ * Si l'URL contient ?testBrands=1, on merge les marques sauvegardées
+ * dans localStorage (par l'outil d'onboarding) avec BRAND_REGISTRY.
+ * Cela permet de tester une marque en cours d'onboarding sans push GitHub.
+ */
+function mergeTestBrands() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('testBrands') !== '1') return;
+    const testBrandsRaw = localStorage.getItem('mirow_test_brands');
+    if (!testBrandsRaw) return;
+    const testBrands = JSON.parse(testBrandsRaw);
+    for (const [id, config] of Object.entries(testBrands)) {
+      BRAND_REGISTRY[id] = config;
+      console.log(`[Mirow] Test brand loaded from localStorage: ${id}`);
+    }
+  } catch (e) {
+    console.warn('[Mirow] Failed to load test brands:', e);
+  }
+}
+
+// Merge des marques de test AVANT la résolution de la marque active
+mergeTestBrands();
+
+/**
  * Récupère la marque depuis l'URL (?brand=xxx) ou retourne 'mirow'.
  * Sécurité : valide que la marque existe dans le registre.
  */
