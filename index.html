@@ -1952,6 +1952,7 @@ function hideEmptyCategories() {
   if (ACTIVE_BRAND_ID === 'mirow') return;
 
   let firstAvailableCat = null;
+  const availableCats = new Set();
 
   ['lips', 'eyes', 'blush', 'brows', 'highlight'].forEach(cat => {
     const items = PALETTES[cat];
@@ -1961,10 +1962,50 @@ function hideEmptyCategories() {
       // Pas de produits dans cette catégorie chez la marque → cacher le bouton
       const btn = document.querySelector(`.cat-btn[data-cat="${cat}"]`);
       if (btn) btn.style.display = 'none';
-    } else if (!firstAvailableCat) {
-      firstAvailableCat = cat;
+    } else {
+      availableCats.add(cat);
+      if (!firstAvailableCat) firstAvailableCat = cat;
     }
   });
+
+  // Cacher les sections de style liées à des catégories absentes
+  // Mapping : section panel ↔ catégorie requise
+  const sectionDependencies = [
+    { sectionId: 'lipStyleRow',  requiresCat: 'lips'   },
+    { sectionId: 'browStyleRow', requiresCat: 'brows'  },
+    { sectionId: 'eyeStyleRow',  requiresCat: 'eyes'   },
+  ];
+  sectionDependencies.forEach(({ sectionId, requiresCat }) => {
+    if (!availableCats.has(requiresCat)) {
+      const row = document.getElementById(sectionId);
+      if (row && row.closest('.panel-section')) {
+        row.closest('.panel-section').style.display = 'none';
+      }
+    }
+  });
+
+  // Cacher le toggle Eyeliner si pas de catégorie Yeux
+  if (!availableCats.has('eyes')) {
+    const eyelinerToggle = document.getElementById('eyelinerToggle');
+    if (eyelinerToggle && eyelinerToggle.closest('.panel-section')) {
+      eyelinerToggle.closest('.panel-section').style.display = 'none';
+    }
+  }
+
+  // Cacher la section "Looks" si moins de 2 catégories disponibles
+  // (un "look" combine plusieurs catégories : lèvres + yeux + blush par exemple ;
+  // ça n'a aucun sens d'avoir des looks pré-définis avec seulement les lèvres)
+  if (availableCats.size < 2) {
+    document.querySelectorAll('.panel-section').forEach(section => {
+      const label = section.querySelector('.section-label');
+      if (label && label.textContent.toLowerCase().trim() === 'looks') {
+        section.style.display = 'none';
+      }
+    });
+    // Cacher aussi le bouton "Comparer 2 looks"
+    const compareBtn = document.getElementById('compareTriggerBtn');
+    if (compareBtn) compareBtn.style.display = 'none';
+  }
 
   // Si la catégorie active n'est plus visible (cachée), basculer sur la première dispo
   if (firstAvailableCat) {
