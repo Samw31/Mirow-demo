@@ -4241,36 +4241,25 @@ function setUploadStatus(msg) {
 // PATCH déclencheurs re-render en mode photo
 // ============================================================
 // En mode photo, le maquillage doit se re-rendre à chaque changement
-// de teinte / look / finish / intensité. On hook tous les listeners
-// existants via délégation sur le panel.
+// de teinte / look / finish / intensité. Approche : on hook le panel
+// en phase BUBBLING (après que les handlers natifs aient modifié makeup)
+// + setTimeout(0) pour passer en fin de boucle d'événements.
 
-// Hook sur le slider d'intensité pour re-render en mode photo
-const opSliderEl = document.getElementById('opSlider');
-if (opSliderEl) {
-  opSliderEl.addEventListener('input', () => {
-    if (photoMode) requestAnimationFrame(renderPhotoFrame);
-  });
+function scheduleFotoRerender() {
+  if (!photoMode) return;
+  // setTimeout 0 = passe APRÈS tous les autres handlers du même clic
+  setTimeout(renderPhotoFrame, 0);
 }
 
-// Hook sur les sélecteurs de style (lèvres, sourcils, yeux)
-['lipStyleRow', 'browStyleRow', 'eyeStyleRow'].forEach(rowId => {
-  const row = document.getElementById(rowId);
-  if (row) {
-    row.addEventListener('click', () => {
-      if (photoMode) requestAnimationFrame(renderPhotoFrame);
-    });
-  }
-});
+// Hook sur le slider d'intensité (événement input continu)
+const opSliderEl = document.getElementById('opSlider');
+if (opSliderEl) {
+  opSliderEl.addEventListener('input', scheduleFotoRerender);
+}
 
-// Hook délégué sur le panel pour capturer TOUS les clics (teintes, looks, catégories...)
-// On déclenche un re-render avec un léger délai pour laisser les autres handlers
-// (changement de currentColor, etc.) s'exécuter avant.
-document.querySelector('.panel').addEventListener('click', () => {
-  if (photoMode) {
-    // 2 RAF pour s'exécuter après les handlers natifs
-    requestAnimationFrame(() => requestAnimationFrame(renderPhotoFrame));
-  }
-}, true);
+// Hook délégué sur le panel — phase bubbling (par défaut)
+// pour s'exécuter APRÈS les handlers natifs qui modifient makeup/currentColor
+document.querySelector('.panel').addEventListener('click', scheduleFotoRerender);
 
 // ============================================================
 // INITIALISATION
@@ -4324,8 +4313,10 @@ function showCaptureButton() {
  * Retourne une Promise qui resolve avec un Blob.
  */
 async function captureComposite() {
-  const W = video.videoWidth || 640;
-  const H = video.videoHeight || 480;
+  // Source : photo en mode photo, vidéo sinon
+  const useSource = photoMode && photoImage ? photoImage : video;
+  const W = photoMode ? photoImage.naturalWidth  : (video.videoWidth  || 640);
+  const H = photoMode ? photoImage.naturalHeight : (video.videoHeight || 480);
 
   // Canvas de composition (jamais affiché, juste pour l'export)
   const compositeCanvas = document.createElement('canvas');
@@ -4333,11 +4324,11 @@ async function captureComposite() {
   compositeCanvas.height = H;
   const cctx = compositeCanvas.getContext('2d');
 
-  // 1. Dessiner la vidéo (avec miroir pour cohérence visuelle avec l'aperçu)
+  // 1. Dessiner la source (vidéo ou photo) avec miroir
   cctx.save();
   cctx.translate(W, 0);
   cctx.scale(-1, 1); // miroir horizontal
-  cctx.drawImage(video, 0, 0, W, H);
+  cctx.drawImage(useSource, 0, 0, W, H);
   cctx.restore();
 
   // 2. Dessiner le canvas de maquillage AR par-dessus
