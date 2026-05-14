@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mirow Analytics · Dashboard</title>
+
+<!--
+  ============================================================
+  MIROW ADMIN DASHBOARD v1.0
+  ============================================================
+  Page standalone d'analytics. Lit les events depuis localStorage
+  (stockés par le widget principal sous "mirow_events_<brandId>").
+
+  Accès :
+   - /admin.html              → marque "mirow" par défaut
+   - /admin.html?brand=test   → marque "test"
+
+  Granularité d'affichage selon le plan de la marque :
+   - Starter : compteurs basiques + top teintes
+   - Growth  : + conversion + heatmap + sessions
+   - Premium : + export CSV + funnel détaillé
+  ============================================================
+-->
+
+<style>
+:root {
+  --void:           #09090F;
+  --surface:        #131318;
+  --surface-2:      #1B1B22;
+  --border:         rgba(255, 255, 255, 0.08);
+  --border-strong:  rgba(255, 255, 255, 0.16);
+  --cream:          #F0ECE6;
+  --text-secondary: rgba(240, 236, 230, 0.65);
+  --text-tertiary:  rgba(240, 236, 230, 0.4);
+  --electric-purple:#A855F7;
+  --hot-pink:       #EC4899;
+  --gradient-neon:  linear-gradient(135deg, #A855F7 0%, #EC4899 100%);
+  --success:        #4ADE80;
+  --warning:        #FBBF24;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--void);
+  color: var(--cream);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  min-height: 100vh;
+  padding: 40px 32px;
+}
+
+/* Topbar */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 40px;
+  padding-bottom: 24px;
+  border-bottom: 0.5px solid var(--border);
+}
+.topbar-left { display: flex; align-items: center; gap: 16px; }
+.logo {
+  font-family: Georgia, serif;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+}
+.logo .accent {
+  background: var(--gradient-neon);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-style: italic;
+}
+.admin-label {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  background: rgba(168, 85, 247, 0.12);
+  border: 0.5px solid rgba(168, 85, 247, 0.3);
+  border-radius: 99px;
+  color: var(--electric-purple);
+}
+.brand-selector {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.brand-selector select {
+  padding: 8px 14px;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 8px;
+  color: var(--cream);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+}
+.plan-badge {
+  padding: 5px 11px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-radius: 99px;
+  background: rgba(168, 85, 247, 0.12);
+  border: 0.5px solid rgba(168, 85, 247, 0.3);
+  color: var(--electric-purple);
+}
+
+/* Section heading */
+.section {
+  margin-bottom: 36px;
+}
+.section-heading {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+/* KPI Cards */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 36px;
+}
+.kpi-card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 22px;
+  transition: border-color 0.2s;
+}
+.kpi-card:hover { border-color: var(--border-strong); }
+.kpi-label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.kpi-value {
+  font-family: Georgia, serif;
+  font-size: 32px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+.kpi-value.accent {
+  background: var(--gradient-neon);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.kpi-sub {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+/* Two-column layout for charts */
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 36px;
+}
+@media (max-width: 880px) { .two-col { grid-template-columns: 1fr; } }
+
+.chart-card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+}
+.chart-card-heading {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 18px;
+}
+
+/* Top list (teintes, produits) */
+.top-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.top-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 0;
+  border-bottom: 0.5px solid var(--border);
+}
+.top-row:last-child { border-bottom: none; }
+.top-rank {
+  font-family: Georgia, serif;
+  font-size: 14px;
+  color: var(--text-tertiary);
+  width: 24px;
+  flex-shrink: 0;
+}
+.top-name {
+  font-size: 13px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.top-bar {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.top-bar-fill {
+  height: 100%;
+  background: var(--gradient-neon);
+  border-radius: 3px;
+}
+.top-count {
+  font-size: 12px;
+  font-weight: 500;
+  width: 36px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* Heatmap horaire (Growth+) */
+.heatmap {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  gap: 3px;
+}
+.heatmap-cell {
+  aspect-ratio: 1;
+  background: rgba(168, 85, 247, 0.1);
+  border-radius: 3px;
+  position: relative;
+}
+.heatmap-cell[data-intensity="0"] { background: rgba(255, 255, 255, 0.04); }
+.heatmap-cell[data-intensity="1"] { background: rgba(168, 85, 247, 0.2); }
+.heatmap-cell[data-intensity="2"] { background: rgba(168, 85, 247, 0.4); }
+.heatmap-cell[data-intensity="3"] { background: rgba(168, 85, 247, 0.65); }
+.heatmap-cell[data-intensity="4"] { background: var(--electric-purple); }
+.heatmap-labels {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  gap: 3px;
+  margin-top: 8px;
+  font-size: 9px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+/* Plan locked banner */
+.plan-locked {
+  background: rgba(168, 85, 247, 0.06);
+  border: 0.5px dashed rgba(168, 85, 247, 0.3);
+  border-radius: 12px;
+  padding: 24px;
+  text-align: center;
+}
+.plan-locked-icon {
+  font-size: 24px;
+  margin-bottom: 12px;
+}
+.plan-locked-title {
+  font-family: Georgia, serif;
+  font-size: 18px;
+  margin-bottom: 6px;
+}
+.plan-locked-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+.plan-locked-cta {
+  display: inline-block;
+  padding: 10px 20px;
+  background: var(--gradient-neon);
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: none;
+  color: #fff;
+}
+
+/* Actions bar */
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 36px;
+}
+.action-btn {
+  padding: 10px 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 0.5px solid var(--border);
+  border-radius: 99px;
+  color: var(--cream);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.action-btn:hover {
+  background: rgba(168, 85, 247, 0.1);
+  border-color: rgba(168, 85, 247, 0.4);
+}
+.action-btn.primary {
+  background: var(--gradient-neon);
+  border-color: transparent;
+}
+.action-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #FCA5A5;
+}
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 60px 24px;
+  color: var(--text-secondary);
+}
+.empty-state-icon { font-size: 32px; margin-bottom: 16px; }
+.empty-state-title { font-family: Georgia, serif; font-size: 18px; margin-bottom: 8px; color: var(--cream); }
+.empty-state-text { font-size: 13px; line-height: 1.6; max-width: 400px; margin: 0 auto; }
+
+/* Mini toast */
+.admin-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(120%);
+  padding: 12px 22px;
+  background: rgba(9, 9, 15, 0.92);
+  border: 0.5px solid var(--success);
+  border-radius: 99px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--success);
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+  z-index: 100;
+}
+.admin-toast.show { transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<!-- Topbar -->
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="logo">mir<span class="accent">o</span>w</div>
+    <div class="admin-label">Analytics</div>
+  </div>
+  <div class="brand-selector">
+    <span class="plan-badge" id="planBadge">—</span>
+    <select id="brandSelect">
+      <option value="mirow">Mirow (default)</option>
+      <option value="test">Test Brand</option>
+    </select>
+  </div>
+</div>
+
+<!-- Section : KPIs principaux -->
+<div class="section">
+  <div class="section-heading">Vue d'ensemble</div>
+  <div class="kpi-grid" id="kpiGrid"></div>
+</div>
+
+<!-- Actions -->
+<div class="actions" id="actionsBar"></div>
+
+<!-- Section : Top teintes + Top produits panier -->
+<div class="two-col">
+  <div class="chart-card">
+    <div class="chart-card-heading">Top 10 teintes testées</div>
+    <div id="topShadesList" class="top-list"></div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-card-heading">Top 10 produits ajoutés au panier</div>
+    <div id="topCartList" class="top-list"></div>
+  </div>
+</div>
+
+<!-- Section : Heatmap horaire (Growth+) -->
+<div class="section" id="heatmapSection">
+  <div class="chart-card">
+    <div class="chart-card-heading">Activité par heure (try-on)</div>
+    <div class="heatmap" id="heatmapGrid"></div>
+    <div class="heatmap-labels" id="heatmapLabels"></div>
+  </div>
+</div>
+
+<!-- Section : Funnel détaillé (Premium) -->
+<div class="section" id="funnelSection"></div>
+
+<!-- Toast -->
+<div class="admin-toast" id="adminToast">Action effectuée</div>
+
+<script>
+// ============================================================
+// MIROW ADMIN DASHBOARD — LOGIQUE
+// ============================================================
+
+// Configuration des plans (doit matcher celle du widget principal)
+const PLAN_FEATURES = {
+  starter: {
+    showConversion: false,
+    showHeatmap:    false,
+    showFunnel:     false,
+    showExport:     false,
+  },
+  growth: {
+    showConversion: true,
+    showHeatmap:    true,
+    showFunnel:     false,
+    showExport:     true,
+  },
+  premium: {
+    showConversion: true,
+    showHeatmap:    true,
+    showFunnel:     true,
+    showExport:     true,
+  },
+};
+
+const BRAND_PLANS = {
+  mirow: 'premium',
+  test:  'growth',
+};
+
+// Récupération de la marque depuis URL
+function getBrandFromURL() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('brand') || 'mirow';
+}
+
+let currentBrandId = getBrandFromURL();
+document.getElementById('brandSelect').value = currentBrandId;
+
+document.getElementById('brandSelect').addEventListener('change', (e) => {
+  currentBrandId = e.target.value;
+  // Update URL sans reload
+  const url = new URL(window.location);
+  url.searchParams.set('brand', currentBrandId);
+  window.history.replaceState({}, '', url);
+  refreshDashboard();
+});
+
+// Lecture des events depuis localStorage
+function getEvents(brandId) {
+  try {
+    const raw = localStorage.getItem('mirow_events_' + brandId);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) { return []; }
+}
+
+// Compute stats
+function computeStats(events, brandId) {
+  const plan = BRAND_PLANS[brandId] || 'starter';
+  const features = PLAN_FEATURES[plan];
+
+  const total = events.length;
+  const sessions = new Set(events.map(e => e.s));
+  const tryOnSessions = new Set(events.filter(e => e.e === 'try_on_start').map(e => e.s));
+  const cartSessions = new Set(events.filter(e => e.e === 'add_to_cart').map(e => e.s));
+  const shadeClicks = events.filter(e => e.e === 'shade_clicked').length;
+  const photos = events.filter(e => e.e === 'photo_captured').length;
+  const shares = events.filter(e => e.e === 'photo_shared').length;
+  const compares = events.filter(e => e.e === 'compare_opened').length;
+  const conversionRate = tryOnSessions.size > 0
+    ? (cartSessions.size / tryOnSessions.size) * 100
+    : 0;
+
+  // Top teintes
+  const shadeMap = {};
+  events.filter(e => e.e === 'shade_clicked').forEach(e => {
+    const key = (e.d.shadeName || e.d.shadeColor || '?') + ' · ' + (e.d.category || '?');
+    shadeMap[key] = (shadeMap[key] || 0) + 1;
+  });
+  const topShades = Object.entries(shadeMap)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([name, count]) => ({ name, count }));
+
+  // Top cart
+  const cartMap = {};
+  events.filter(e => e.e === 'add_to_cart').forEach(e => {
+    const key = e.d.productName || e.d.productId || '?';
+    cartMap[key] = (cartMap[key] || 0) + 1;
+  });
+  const topCart = Object.entries(cartMap)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([name, count]) => ({ name, count }));
+
+  // Heatmap horaire (24 buckets)
+  const hourly = new Array(24).fill(0);
+  events.filter(e => e.e === 'try_on_start').forEach(e => {
+    const hour = new Date(e.t).getHours();
+    hourly[hour]++;
+  });
+
+  return {
+    plan, features, total,
+    sessions: sessions.size,
+    tryOnSessions: tryOnSessions.size,
+    cartSessions: cartSessions.size,
+    shadeClicks, photos, shares, compares,
+    conversionRate, topShades, topCart, hourly,
+  };
+}
+
+// Render KPI cards
+function renderKPIs(stats) {
+  const grid = document.getElementById('kpiGrid');
+
+  // KPIs disponibles selon le plan
+  const cards = [
+    { label: 'Sessions try-on', value: stats.tryOnSessions, sub: 'caméras activées' },
+    { label: 'Teintes testées', value: stats.shadeClicks, sub: 'clics teintes' },
+    { label: 'Ajouts au panier', value: stats.cartSessions, sub: 'sessions ayant ajouté' },
+  ];
+
+  if (stats.features.showConversion) {
+    cards.push({
+      label: 'Taux de conversion',
+      value: stats.conversionRate.toFixed(1) + '%',
+      sub: 'try-on → panier',
+      accent: true,
+    });
+  }
+
+  cards.push(
+    { label: 'Photos capturées', value: stats.photos, sub: '' },
+    { label: 'Partages', value: stats.shares, sub: 'Web Share API' },
+  );
+
+  if (stats.features.showFunnel) {
+    cards.push({ label: 'Comparaisons looks', value: stats.compares, sub: 'mode compare' });
+  }
+
+  grid.innerHTML = cards.map(c => `
+    <div class="kpi-card">
+      <div class="kpi-label">${c.label}</div>
+      <div class="kpi-value ${c.accent ? 'accent' : ''}">${c.value}</div>
+      ${c.sub ? `<div class="kpi-sub">${c.sub}</div>` : ''}
+    </div>
+  `).join('');
+}
+
+// Render top list (teintes, panier)
+function renderTopList(containerId, items) {
+  const container = document.getElementById(containerId);
+  if (items.length === 0) {
+    container.innerHTML = `<div style="color:var(--text-tertiary);font-size:12px;padding:20px 0;text-align:center;">Aucune donnée pour l'instant</div>`;
+    return;
+  }
+  const max = Math.max(...items.map(i => i.count));
+  container.innerHTML = items.map((item, idx) => `
+    <div class="top-row">
+      <div class="top-rank">${idx + 1}</div>
+      <div class="top-name" title="${item.name}">${item.name}</div>
+      <div class="top-bar"><div class="top-bar-fill" style="width:${(item.count / max) * 100}%"></div></div>
+      <div class="top-count">${item.count}</div>
+    </div>
+  `).join('');
+}
+
+// Render heatmap (Growth+)
+function renderHeatmap(stats) {
+  const section = document.getElementById('heatmapSection');
+  if (!stats.features.showHeatmap) {
+    section.innerHTML = `
+      <div class="plan-locked">
+        <div class="plan-locked-icon">📊</div>
+        <div class="plan-locked-title">Heatmap horaire</div>
+        <div class="plan-locked-subtitle">Disponible à partir du plan Growth · Voyez à quelles heures vos clientes essayent vos produits</div>
+        <a href="https://mirowia.com/pricing" class="plan-locked-cta">Découvrir Growth</a>
+      </div>
+    `;
+    return;
+  }
+
+  const grid = document.getElementById('heatmapGrid');
+  const labels = document.getElementById('heatmapLabels');
+  if (!grid) return; // section a été réécrite
+
+  const max = Math.max(...stats.hourly, 1);
+  grid.innerHTML = stats.hourly.map((count, hour) => {
+    const intensity = count === 0 ? 0 : Math.min(4, Math.ceil((count / max) * 4));
+    return `<div class="heatmap-cell" data-intensity="${intensity}" title="${hour}h : ${count} sessions"></div>`;
+  }).join('');
+
+  labels.innerHTML = stats.hourly.map((_, hour) => {
+    return `<div>${hour % 6 === 0 ? hour + 'h' : ''}</div>`;
+  }).join('');
+}
+
+// Render funnel (Premium)
+function renderFunnel(stats) {
+  const section = document.getElementById('funnelSection');
+  if (!stats.features.showFunnel) {
+    section.innerHTML = `
+      <div class="plan-locked">
+        <div class="plan-locked-icon">🔻</div>
+        <div class="plan-locked-title">Funnel détaillé</div>
+        <div class="plan-locked-subtitle">Disponible avec le plan Premium · Suivez le parcours complet impression → essai → comparaison → panier</div>
+        <a href="https://mirowia.com/pricing" class="plan-locked-cta">Découvrir Premium</a>
+      </div>
+    `;
+    return;
+  }
+
+  const tryOn = stats.tryOnSessions;
+  const shades = Math.min(stats.shadeClicks, tryOn * 5); // approximation
+  const photos = stats.photos;
+  const cart = stats.cartSessions;
+  const steps = [
+    { label: 'Sessions try-on', count: tryOn },
+    { label: 'Teintes essayées', count: shades },
+    { label: 'Photos capturées', count: photos },
+    { label: 'Ajouts au panier', count: cart },
+  ];
+
+  const max = Math.max(...steps.map(s => s.count), 1);
+  section.innerHTML = `
+    <div class="chart-card">
+      <div class="chart-card-heading">Funnel détaillé · Sessions</div>
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        ${steps.map((s, i) => {
+          const pct = (s.count / max) * 100;
+          const prev = i > 0 ? steps[i-1].count : null;
+          const drop = prev !== null && prev > 0 ? ((s.count / prev) * 100).toFixed(0) : null;
+          return `
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary);margin-bottom:6px;">
+                <span>${s.label}</span>
+                <span style="color:var(--cream);font-weight:500;">${s.count}${drop !== null ? ` · ${drop}%` : ''}</span>
+              </div>
+              <div style="height:24px;background:rgba(255,255,255,0.04);border-radius:6px;overflow:hidden;">
+                <div style="height:100%;width:${pct}%;background:var(--gradient-neon);transition:width 0.6s ease;"></div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+// Render actions (export, reset...)
+function renderActions(stats) {
+  const bar = document.getElementById('actionsBar');
+  const actions = [
+    { label: 'Actualiser', icon: '↻', fn: 'refreshDashboard()', cls: '' },
+  ];
+  if (stats.features.showExport) {
+    actions.push({ label: 'Export CSV', icon: '↓', fn: 'exportCSV()', cls: 'primary' });
+  }
+  actions.push({ label: 'Effacer données', icon: '×', fn: 'clearData()', cls: 'danger' });
+
+  bar.innerHTML = actions.map(a => `
+    <button class="action-btn ${a.cls}" onclick="${a.fn}">
+      <span>${a.icon}</span> <span>${a.label}</span>
+    </button>
+  `).join('');
+}
+
+// Export CSV
+function exportCSV() {
+  const events = getEvents(currentBrandId);
+  if (events.length === 0) {
+    showToast('Aucune donnée à exporter');
+    return;
+  }
+  const headers = ['timestamp', 'iso_date', 'session', 'brand', 'plan', 'event', 'focus_product', 'data'];
+  const rows = events.map(e => [
+    e.t, new Date(e.t).toISOString(),
+    e.s, e.b, e.p, e.e, e.fp || '',
+    JSON.stringify(e.d || {})
+  ]);
+  const escapeCSV = v => {
+    const s = String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const csv = [headers, ...rows].map(r => r.map(escapeCSV).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `mirow-analytics-${currentBrandId}-${new Date().toISOString().slice(0,10)}.csv`;
+  link.click();
+  showToast('Export CSV téléchargé');
+}
+
+// Clear data
+function clearData() {
+  if (!confirm(`Effacer toutes les données analytics pour "${currentBrandId}" ?\n\nCette action est irréversible.`)) return;
+  localStorage.removeItem('mirow_events_' + currentBrandId);
+  showToast('Données effacées');
+  refreshDashboard();
+}
+
+// Toast
+function showToast(msg) {
+  const t = document.getElementById('adminToast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// Refresh complet
+function refreshDashboard() {
+  const events = getEvents(currentBrandId);
+  const stats = computeStats(events, currentBrandId);
+
+  document.getElementById('planBadge').textContent = stats.plan;
+
+  if (events.length === 0) {
+    document.getElementById('kpiGrid').innerHTML = `
+      <div style="grid-column:1/-1;" class="empty-state">
+        <div class="empty-state-icon">📭</div>
+        <div class="empty-state-title">Aucune donnée pour ${currentBrandId}</div>
+        <div class="empty-state-text">Le widget Mirow doit être utilisé au moins une fois sur cette marque pour générer des données. Ouvre <a style="color:var(--electric-purple)" href="/?brand=${currentBrandId}">la démo widget</a> et essaie quelques teintes pour voir le dashboard se remplir.</div>
+      </div>
+    `;
+    document.getElementById('topShadesList').innerHTML = '';
+    document.getElementById('topCartList').innerHTML = '';
+    document.getElementById('heatmapSection').innerHTML = '';
+    document.getElementById('funnelSection').innerHTML = '';
+    document.getElementById('actionsBar').innerHTML = `
+      <button class="action-btn" onclick="refreshDashboard()"><span>↻</span> <span>Actualiser</span></button>
+    `;
+    return;
+  }
+
+  renderKPIs(stats);
+  renderTopList('topShadesList', stats.topShades);
+  renderTopList('topCartList', stats.topCart);
+  renderHeatmap(stats);
+  renderFunnel(stats);
+  renderActions(stats);
+}
+
+// Init
+refreshDashboard();
+
+// Auto-refresh toutes les 5 secondes pour voir les events arriver en live
+setInterval(refreshDashboard, 5000);
+</script>
+
+</body>
+</html>
