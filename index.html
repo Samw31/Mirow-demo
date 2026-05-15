@@ -3999,6 +3999,36 @@ function applyLips(lm, W, H) {
 
   const params = styleParams[style];
 
+  // ========================================================
+  // ANTI-DÉBORDEMENT — détection bouche ouverte (Tasks Vision)
+  // --------------------------------------------------------
+  // ÉTAPE 4/4 — Si la cliente parle/sourit grand, le rouge déborde
+  // visuellement sur les dents (car les landmarks restent sur le
+  // contour des lèvres mais l'intérieur s'agrandit).
+  //
+  // Solution : on atténue l'opacité progressive de la couleur
+  // quand jawOpen > 0.15 (blendshape Tasks Vision).
+  // L'effet est invisible aux petites variations (parler normal)
+  // et progressif aux grands sourires (jawOpen ~ 0.5-0.7).
+  //
+  // Sans blendshapes (FaceMesh fallback) : pas d'atténuation,
+  // le widget continue comme avant.
+  // ========================================================
+  let jawOpenFactor = 1.0;
+  if (currentBlendshapes && typeof currentBlendshapes.jawOpen === 'number') {
+    const jaw = currentBlendshapes.jawOpen;
+    if (jaw > 0.15) {
+      // Atténuation linéaire entre jaw=0.15 (100%) et jaw=0.5 (40%)
+      // Au-delà, on plafonne à 40% pour ne pas tout faire disparaître
+      jawOpenFactor = Math.max(0.4, 1.0 - (jaw - 0.15) * 1.7);
+    }
+  }
+  // Application du facteur sur toutes les opacités (base + reflets)
+  // → conserve le rendu cohérent même bouche entrouverte
+  params.baseOp      *= jawOpenFactor;
+  params.shineOp     *= jawOpenFactor;
+  params.sideShineOp *= jawOpenFactor;
+
   // Application du boost de saturation pour metallic
   // (on déplace la couleur vers une teinte plus pure)
   let r = rgb.r, g = rgb.g, b = rgb.b;
@@ -4016,6 +4046,75 @@ function applyLips(lm, W, H) {
   }
 
   const tc = resetTmpCanvas('lips', W, H);
+
+  // ========================================================
+  // COUCHE 0 — SUB-SURFACE SCATTERING (SSS)
+  // --------------------------------------------------------
+  // ÉTAPE 4/4 — Simulation de la translucidité naturelle des lèvres.
+  // Phénomène physique : la lumière pénètre légèrement dans la chair
+  // avant de ressortir, créant un halo rosé interne caractéristique.
+  //
+  // Implémentation : 2 zones plus claires/saturées au bord intérieur
+  // de chaque lèvre (côté ouverture buccale), dégradées vers l'extérieur.
+  // L'effet est plus chaud (rougi) et adoucit l'aspect "peinture plate".
+  // ========================================================
+  // Calcul de la couleur SSS : plus rosé/rouge que la base
+  // (simule la lumière passant à travers la chair des lèvres)
+  const sssR = Math.min(255, Math.round(r * 1.05 + 28));
+  const sssG = Math.max(0,   Math.round(g * 0.85));
+  const sssB = Math.max(0,   Math.round(b * 0.85));
+  const sssIntensity = 0.18 * toneAdj.opMultiplier * jawOpenFactor;
+
+  // Bord interne lèvre supérieure (côté ouverture)
+  const upperInner = [82,81,80,191,78,61,191,80,81,82,13];
+  // Bord interne lèvre inférieure (côté ouverture)
+  const lowerInner = [87,178,88,95,78,308,324,318,402,317,14,87];
+
+  tc.save();
+  tc.filter = 'blur(3px)'; // fondu très doux du SSS
+  tc.globalCompositeOperation = 'source-over';
+
+  // Tracer la lèvre supérieure complète et appliquer un gradient
+  // vertical du bord interne vers l'extérieur
+  const upperMidY = lipCenter.y - lipWidth * 0.04;
+  const upperTopY = lipCenter.y - lipWidth * 0.18;
+
+  tc.beginPath();
+  oU.forEach((idx, i) => {
+    const p = pt(lm, idx, W, H);
+    if (i === 0) tc.moveTo(p.x, p.y);
+    else tc.lineTo(p.x, p.y);
+  });
+  tc.closePath();
+
+  const upperGrad = tc.createLinearGradient(lipCenter.x, upperMidY, lipCenter.x, upperTopY);
+  upperGrad.addColorStop(0,   `rgba(${sssR},${sssG},${sssB},${sssIntensity})`);
+  upperGrad.addColorStop(0.6, `rgba(${sssR},${sssG},${sssB},${sssIntensity * 0.3})`);
+  upperGrad.addColorStop(1,   `rgba(${sssR},${sssG},${sssB},0)`);
+  tc.fillStyle = upperGrad;
+  tc.fill();
+
+  // Lèvre inférieure : gradient du bord interne vers le bas
+  const lowerMidY = lipCenter.y + lipWidth * 0.04;
+  const lowerBotY = lipCenter.y + lipWidth * 0.22;
+
+  tc.beginPath();
+  oL.forEach((idx, i) => {
+    const p = pt(lm, idx, W, H);
+    if (i === 0) tc.moveTo(p.x, p.y);
+    else tc.lineTo(p.x, p.y);
+  });
+  tc.closePath();
+
+  const lowerGrad = tc.createLinearGradient(lipCenter.x, lowerMidY, lipCenter.x, lowerBotY);
+  lowerGrad.addColorStop(0,   `rgba(${sssR},${sssG},${sssB},${sssIntensity})`);
+  lowerGrad.addColorStop(0.6, `rgba(${sssR},${sssG},${sssB},${sssIntensity * 0.3})`);
+  lowerGrad.addColorStop(1,   `rgba(${sssR},${sssG},${sssB},0)`);
+  tc.fillStyle = lowerGrad;
+  tc.fill();
+
+  tc.filter = 'none';
+  tc.restore();
 
   // ========================================================
   // COUCHE 1 — REMPLISSAGE LÈVRE SUPÉRIEURE
