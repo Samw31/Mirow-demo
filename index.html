@@ -3907,6 +3907,30 @@ function applyLips(lm, W, H) {
   const rgb = hexToRgb(m.c);
 
   // ========================================================
+  // RECALIBRAGE INTENSITÉ LÈVRES (v3.11.2)
+  // --------------------------------------------------------
+  // Problème observé : à 20% du slider, l'effet est déjà trop fort
+  // (rendu fluo/irréaliste). À 100%, c'est carrément "Joker".
+  //
+  // Solution : courbe puissance (slider^1.8) appliquée UNIQUEMENT
+  // pour le rendu (l'état makeup.lips.op reste linéaire pour la
+  // cohérence du slider).
+  // - Slider à 20%  → opacité effective ~5%   (avant ~20%)
+  // - Slider à 50%  → opacité effective ~30%  (avant ~50%)
+  // - Slider à 80%  → opacité effective ~62%  (avant ~80%)
+  // - Slider à 100% → opacité effective 100%  (limite haute marquée mais réaliste)
+  //
+  // L'utilisateur garde 100 niveaux de granularité MAIS l'effet
+  // monte progressivement. Les premiers 30% du slider donnent un
+  // rendu très naturel, idéal pour la démo wow factor.
+  //
+  // IMPORTANT : on crée un objet local `mLips` au lieu de modifier
+  // m.op directement (sinon ça polluerait l'état global utilisé
+  // par d'autres modules comme le slider, le compare mode, etc.)
+  // ========================================================
+  const mLips = { ...m, op: Math.pow(m.op, 1.8) };
+
+  // ========================================================
   // TONE MATCHING — ajustement selon ton de peau détecté
   // ========================================================
   const toneAdj = getToneAdjustments('lips');
@@ -3937,43 +3961,46 @@ function applyLips(lm, W, H) {
   const styleParams = {
     matte: {
       // Mat : opaque, sans reflet, micro-grain
-      // baseOp boosté de 0.85 → 1.1 pour compenser le multiply final
-      baseOp:        Math.min(1.0, m.op * 1.1 * toneAdj.opMultiplier),
+      // v3.11.2 : baseOp réduit de 1.1 → 0.65 pour rendu naturel
+      baseOp:        Math.min(1.0, mLips.op * 0.65 * toneAdj.opMultiplier),
       lowerLightenR: 8,             // lèvre inférieure légèrement plus claire
       lowerLightenG: 4,
       lowerLightenB: 5,
       shineOp:       0,             // PAS de reflet humide
       shineSize:     0,
       sideShineOp:   0,             // PAS de reflets latéraux
-      saturationBoost: 1.0 * toneAdj.satBoost, // ajusté ton de peau
+      // v3.11.2 : désaturation pour respecter la couleur du swatch
+      saturationBoost: 0.9 * toneAdj.satBoost, // -10% pour éviter saturation fluo
       blurAmount:    1.4,           // blur léger pour bords nets
       grainNoise:    true,          // micro-grain pour texture mate
     },
     glossy: {
       // Glossy : effet humide central, lèvre inférieure plus claire
-      // baseOp boosté de 0.7 → 0.95 pour compenser le multiply
-      baseOp:        Math.min(1.0, m.op * 0.95 * toneAdj.opMultiplier),
+      // v3.11.2 : baseOp réduit de 0.95 → 0.55 pour rendu naturel
+      baseOp:        Math.min(1.0, mLips.op * 0.55 * toneAdj.opMultiplier),
       lowerLightenR: 25,
       lowerLightenG: 10,
       lowerLightenB: 15,
       shineOp:       0.22,          // reflet humide plus visible (était 0.18)
       shineSize:     0.24,          // reflet plus large
       sideShineOp:   0.08,          // léger highlight latéral (était 0.06)
-      saturationBoost: 1.0 * toneAdj.satBoost,
+      // v3.11.2 : désaturation pour respecter la couleur du swatch
+      saturationBoost: 0.9 * toneAdj.satBoost,
       blurAmount:    2.2,           // blur moyen pour fondu naturel
       grainNoise:    false,
     },
     metallic: {
       // Metallic : reflets multiples, saturation boostée, micro-paillettes
-      // POLISH v3.10.2 : reflets adoucis (shineOp 0.32→0.22, sideShine 0.18→0.12)
-      baseOp:        m.op * 0.78 * toneAdj.opMultiplier,
+      // v3.11.2 : baseOp réduit de 0.78 → 0.55 pour rendu naturel
+      baseOp:        mLips.op * 0.55 * toneAdj.opMultiplier,
       lowerLightenR: 35,            // contraste fort haut/bas
       lowerLightenG: 18,
       lowerLightenB: 22,
       shineOp:       0.22,          // reflet central modéré (était 0.32)
       shineSize:     0.32,          // un peu plus diffus (était 0.28)
       sideShineOp:   0.12,          // reflets latéraux plus subtils (était 0.18)
-      saturationBoost: 1.15 * toneAdj.satBoost, // metallic +15% × tone
+      // v3.11.2 : saturation boostée conservée pour metallic (effet voulu)
+      saturationBoost: 1.05 * toneAdj.satBoost, // metallic +5% × tone (était +15%)
       blurAmount:    2.2,           // blur augmenté pour adoucir (était 1.8)
       grainNoise:    false,
       shimmer:       true,          // points lumineux supplémentaires (diffus)
