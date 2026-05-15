@@ -3487,27 +3487,10 @@ function applyDynamicHighlights(lm, W, H) {
     applyMetallicIridescence(lm, W, H, pose, m.op);
   }
 
-  // ========================================================
-  // REFLETS ÉCLAT — pommettes + arête nez (renforcement)
-  // ========================================================
-  const h = makeup.highlight;
-  if (h && h.c && h.op > 0.05) {
-    const intensityH = h.op * 0.4;
-
-    // Pommettes (haut du relief)
-    const cheekL = pt(lm, 116, W, H);
-    const cheekR = pt(lm, 345, W, H);
-    drawDynamicSpot(cheekL, 22 * scale, intensityH, pose, 10);
-    drawDynamicSpot(cheekR, 22 * scale, intensityH, pose, 10);
-
-    // Arête du nez (vertical, plus petit)
-    const noseBridge = pt(lm, 6, W, H);
-    drawDynamicSpot(noseBridge, 12 * scale, intensityH * 0.7, pose, 6);
-
-    // Arc de cupidon (tout petit reflet au-dessus de la lèvre supérieure)
-    const cupidsBow = pt(lm, 164, W, H);
-    drawDynamicSpot(cupidsBow, 7 * scale, intensityH * 0.5, pose, 4);
-  }
+  // NOTE v3.11.1 : Les reflets dynamiques sur l'éclat ont été
+  // RETIRÉS. L'éclat est maintenant rendu uniquement par applyHighlight()
+  // avec une approche minimaliste (2 pommettes + 1 nez, halos très diffus).
+  // Voir applyHighlight() pour la nouvelle implémentation.
 
   webglCtx.restore();
 }
@@ -4732,7 +4715,21 @@ function applyBrows(lm, W, H) {
   });
 }
 
-/** Highlight : points hauts du visage (pommettes, arête nez) */
+/** Highlight : 3 halos lumineux diffus sur les zones hautes du visage
+ *
+ *  v3.11.1 — RESET FROM SCRATCH
+ *  ----------------------------
+ *  L'ancien rendu avait trop de couches qui se cumulaient :
+ *    - 6 points stratégiques (pommettes/nez/cupidon/menton)
+ *    - 4 sparkles aux pommettes
+ *    - Reflets dynamiques par-dessus dans applyDynamicHighlights
+ *  Résultat : points blancs parasites visibles sur le visage.
+ *
+ *  Nouvelle approche : 3 halos uniquement, très flous, mode screen.
+ *  Pas de sparkles, pas de spots dynamiques, pas de couches multiples.
+ *  C'est ce que fait un make-up artist réel : un coup d'highlighter
+ *  sur les 3 zones les plus en relief.
+ */
 function applyHighlight(lm, W, H) {
   const m = makeup.highlight;
   if (!m || !m.c || m.op < 0.05) return;
@@ -4741,56 +4738,71 @@ function applyHighlight(lm, W, H) {
   const toneAdj = getToneAdjustments('highlight');
   const opMul = toneAdj.opMultiplier;
 
-  // Coefficient global : on baisse l'intensité globale pour rendre
-  // l'effet beaucoup plus subtil par défaut. À intensité 70% (curseur),
-  // ça donne un effet doux ; à 100% c'est visible mais jamais "spotté".
-  const SUBTLE_MULTIPLIER = 0.5;
+  // Intensité globale réduite pour rester subtil même à 100%
+  // À 70% (curseur par défaut) → effet doux et naturel
+  // À 100% → effet visible mais jamais spotté
+  const GLOBAL_INTENSITY = 0.45;
 
-  // Référence largeur visage pour scaler proportionnellement
+  // Largeur visage pour scaler proportionnellement
   const faceL = pt(lm, 234, W, H);
   const faceR = pt(lm, 454, W, H);
   const faceWidth = Math.abs(faceR.x - faceL.x);
-  const scale = faceWidth / 280; // 280 = largeur de référence
+  const scale = faceWidth / 280;
 
-  // 6 points stratégiques d'un highlight pro :
-  // 1-2. Pommettes (les plus saturés)
-  // 3.   Arête du nez (vertical fin)
-  // 4.   Pointe du nez (petit point)
-  // 5.   Arc de Cupidon (au-dessus de la lèvre supérieure)
-  // 6.   Menton (subtil, finition)
-  // On a AUGMENTÉ les rx/ry pour des zones plus larges et plus diffuses
-  // (avant les points étaient trop concentrés → visibles comme des taches)
-  const points = [
-    // Pommettes — zone large oblongue (plus large qu'avant)
-    { pt: pt(lm, 116, W, H), rx: 28 * scale, ry: 18 * scale, intensity: 1.0,  rotate: -0.15 },
-    { pt: pt(lm, 345, W, H), rx: 28 * scale, ry: 18 * scale, intensity: 1.0,  rotate: 0.15  },
-    // Arête du nez — vertical fin et long
-    { pt: pt(lm, 6,   W, H), rx: 8  * scale, ry: 32 * scale, intensity: 0.7,  rotate: 0     },
-    // Pointe du nez — diffus
-    { pt: pt(lm, 4,   W, H), rx: 8  * scale, ry: 8  * scale, intensity: 0.45, rotate: 0     },
-    // Arc de Cupidon — ovale horizontal diffus
-    { pt: pt(lm, 164, W, H), rx: 10 * scale, ry: 6  * scale, intensity: 0.4,  rotate: 0     },
-    // Menton — très subtil pour finition
-    { pt: pt(lm, 200, W, H), rx: 12 * scale, ry: 8  * scale, intensity: 0.3,  rotate: 0     },
+  // 3 halos uniquement :
+  // - 2 pommettes (LE point clé d'un highlight pro)
+  // - 1 arête du nez (vertical et fin)
+  //
+  // Pas d'arc de Cupidon, pas de menton, pas de pointe du nez :
+  // sur des landmarks moins précis, ces zones produisaient
+  // des reflets mal placés (cf. point blanc parasite sur sourcil).
+  const halos = [
+    {
+      // Pommette gauche : ellipse oblique
+      center:    pt(lm, 116, W, H),
+      rx:        32 * scale,
+      ry:        20 * scale,
+      rotate:    -0.15,
+      intensity: 1.0,
+    },
+    {
+      // Pommette droite : symétrique
+      center:    pt(lm, 345, W, H),
+      rx:        32 * scale,
+      ry:        20 * scale,
+      rotate:    0.15,
+      intensity: 1.0,
+    },
+    {
+      // Arête du nez : ellipse verticale fine
+      center:    pt(lm, 6, W, H),
+      rx:        7  * scale,
+      ry:        28 * scale,
+      rotate:    0,
+      intensity: 0.55,
+    },
   ];
 
-  points.forEach(({ pt: center, rx, ry, intensity, rotate }) => {
-    // Radial gradient avec stops plus doux : pas de cœur saturé,
-    // diffusion progressive sur toute la zone
+  halos.forEach(({ center, rx, ry, rotate, intensity }) => {
+    // Gradient radial très progressif :
+    // - Centre lumineux mais pas saturé
+    // - Bord externe transparent
+    // - Tous les stops sont doux (pas de cassure visible)
+    const finalAlpha = m.op * GLOBAL_INTENSITY * intensity * opMul;
     const grad = ctx.createRadialGradient(
       center.x, center.y, 0,
       center.x, center.y, Math.max(rx, ry)
     );
-    grad.addColorStop(0,    `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.35 * intensity * opMul * SUBTLE_MULTIPLIER})`);
-    grad.addColorStop(0.3,  `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.22 * intensity * opMul * SUBTLE_MULTIPLIER})`);
-    grad.addColorStop(0.6,  `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.10 * intensity * opMul * SUBTLE_MULTIPLIER})`);
-    grad.addColorStop(0.85, `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.03 * intensity * opMul * SUBTLE_MULTIPLIER})`);
-    grad.addColorStop(1,    'rgba(0,0,0,0)');
+    grad.addColorStop(0,   `rgba(${rgb.r},${rgb.g},${rgb.b},${finalAlpha * 0.55})`);
+    grad.addColorStop(0.4, `rgba(${rgb.r},${rgb.g},${rgb.b},${finalAlpha * 0.25})`);
+    grad.addColorStop(0.8, `rgba(${rgb.r},${rgb.g},${rgb.b},${finalAlpha * 0.05})`);
+    grad.addColorStop(1,   'rgba(0,0,0,0)');
 
     ctx.save();
+    // Screen = lumière additive (éclaircit sans dénaturer la peau)
     ctx.globalCompositeOperation = 'screen';
-    // Blur augmenté de 2.5px à 5px : bords beaucoup plus diffus
-    ctx.filter = 'blur(5px)';
+    // Blur fort pour fondu invisible avec la peau
+    ctx.filter = 'blur(6px)';
     if (rotate !== 0) {
       ctx.translate(center.x, center.y);
       ctx.rotate(rotate);
@@ -4804,42 +4816,9 @@ function applyHighlight(lm, W, H) {
     ctx.restore();
   });
 
-  // SHIMMER : on a réduit de 5 sparkles par pommette à 2 (moins de "bruit"),
-  // et on les rend en radial gradient flou au lieu d'arcs nets.
-  // À intensité par défaut (70%), ils sont quasi-invisibles ;
-  // à 100%, ils ajoutent juste une légère vibration lumineuse.
-  const cheekPoints = [pt(lm, 116, W, H), pt(lm, 345, W, H)];
-  cheekPoints.forEach((cheek, idx) => {
-    const baseSeed = idx * 17.3;
-    for (let i = 0; i < 2; i++) {
-      const seed = baseSeed + i * 4.7;
-      const offsetX = Math.sin(seed) * 14 * scale;
-      const offsetY = Math.cos(seed * 1.3) * 8 * scale;
-      // Taille augmentée pour que ce soit diffus (5-8px au lieu de 0.6-1.8px)
-      const radius = (4 + Math.abs(Math.sin(seed * 2.1)) * 4) * scale;
-      // Opacité de base très basse, montée graduelle avec l'intensité utilisateur
-      const sparkleOp = (0.15 + Math.abs(Math.cos(seed * 3.1)) * 0.15) * m.op * opMul * SUBTLE_MULTIPLIER;
-
-      // Radial gradient flou au lieu d'un arc plein
-      const sparkleGrad = ctx.createRadialGradient(
-        cheek.x + offsetX, cheek.y + offsetY, 0,
-        cheek.x + offsetX, cheek.y + offsetY, radius
-      );
-      sparkleGrad.addColorStop(0,   `rgba(255,255,255,${sparkleOp})`);
-      sparkleGrad.addColorStop(0.5, `rgba(255,255,255,${sparkleOp * 0.4})`);
-      sparkleGrad.addColorStop(1,   'rgba(255,255,255,0)');
-
-      ctx.save();
-      ctx.globalCompositeOperation = 'screen';
-      ctx.filter = 'blur(2px)';
-      ctx.beginPath();
-      ctx.arc(cheek.x + offsetX, cheek.y + offsetY, radius, 0, Math.PI * 2);
-      ctx.fillStyle = sparkleGrad;
-      ctx.fill();
-      ctx.filter = 'none';
-      ctx.restore();
-    }
-  });
+  // Pas de sparkles : les sparkles aléatoires créent toujours des
+  // points blancs parasites quand un landmark dévie. Mieux vaut s'en
+  // passer pour un rendu propre et prévisible.
 }
 
 // ============================================================
