@@ -3373,9 +3373,9 @@ function applyDynamicHighlights(lm, W, H) {
     // Intensité selon style
     const lipsIntensity = (style === 'metallic' ? 0.55 : 0.35) * (m.op || 0.7);
 
-    // Spot principal : milieu lèvre inférieure (zone humide)
-    const lowerLip = pt(lm, 17, W, H);
-    drawDynamicSpot(lowerLip, 18 * scale, lipsIntensity, pose, 8);
+    // NOTE : Le spot central sur la lèvre inférieure (zone humide) a été
+    // RETIRÉ à la demande de Samuel - jugé trop visible/artificiel.
+    // Le shine humide statique reste appliqué dans applyLips() pour le glossy.
 
     // Spots secondaires : coins de lèvres (très subtils)
     const cornerL = pt(lm, 61,  W, H);
