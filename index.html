@@ -3396,10 +3396,10 @@ function applyMetallicIridescence(lm, W, H, pose, opacity) {
     },
   ];
 
-  // Intensité globale : 35% à face, diminue à 5% de profil
+  // Intensité globale : 20% à face, diminue à 5% de profil
   const profileFactor = 1 - Math.abs(pose.yaw) * 0.6;
-  const globalAlpha = 0.35 * opacity * profileFactor;
-  if (globalAlpha < 0.04) return; // trop faible pour être visible
+  const globalAlpha = 0.2 * opacity * profileFactor;
+  if (globalAlpha < 0.03) return; // trop faible pour être visible
 
   // Compositing : on dessine sur un canvas temporaire,
   // puis on le compose avec un clip aux contours des lèvres
@@ -3476,30 +3476,15 @@ function applyDynamicHighlights(lm, W, H) {
   const scale = faceWidth / 280;
 
   // ========================================================
-  // REFLETS LÈVRES — uniquement si glossy ou metallic
+  // REFLETS LÈVRES — uniquement si metallic (iridescence)
   // ========================================================
   const m = makeup.lips;
   const style = currentLipStyle || 'glossy';
-  if (m && m.c && (style === 'glossy' || style === 'metallic')) {
-    // Intensité selon style
-    const lipsIntensity = (style === 'metallic' ? 0.55 : 0.35) * (m.op || 0.7);
-
-    // NOTE : Le spot central sur la lèvre inférieure (zone humide) a été
-    // RETIRÉ à la demande de Samuel - jugé trop visible/artificiel.
-    // Le shine humide statique reste appliqué dans applyLips() pour le glossy.
-
-    // Spots secondaires : coins de lèvres (très subtils)
-    const cornerL = pt(lm, 61,  W, H);
-    const cornerR = pt(lm, 291, W, H);
-    drawDynamicSpot(cornerL, 6 * scale, lipsIntensity * 0.3, pose, 5);
-    drawDynamicSpot(cornerR, 6 * scale, lipsIntensity * 0.3, pose, 5);
-
-    // ÉTAPE 3/4 — Iridescence metallic
-    // Reflets colorés (cyan/magenta/jaune) qui glissent selon l'angle.
-    // Simule les pigments métalliques qui décomposent la lumière.
-    if (style === 'metallic') {
-      applyMetallicIridescence(lm, W, H, pose, m.op);
-    }
+  if (m && m.c && style === 'metallic') {
+    // NOTE : Les spots dynamiques (centre + coins) ont été retirés
+    // à la demande de Samuel - jugés trop visibles/artificiels.
+    // Seule l'iridescence subtile reste pour le metallic.
+    applyMetallicIridescence(lm, W, H, pose, m.op);
   }
 
   // ========================================================
