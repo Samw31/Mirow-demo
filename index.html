@@ -3337,9 +3337,120 @@ function drawDynamicSpot(center, radius, intensity, pose, offsetMul) {
 }
 
 /**
- * Applique tous les reflets dynamiques sur le canvas WebGL overlay.
- * Appelé à la fin d'applyMakeupAR.
+ * ÉTAPE 3/4 — Iridescence metallic
+ * --------------------------------------------------------
+ * Applique des reflets colorés (cyan/magenta/jaune) qui glissent
+ * sur les lèvres selon l'orientation de la tête.
+ *
+ * Principe :
+ *  - 3 spots de couleurs primaires (CMY) positionnés sur la lèvre
+ *  - Leur position dépend de yaw/pitch (matrice 4×4)
+ *  - Leur opacité diminue quand on est de profil
+ *  - Composition 'color-dodge' pour effet "lumière colorée qui rebondit"
+ *  - Masqué au contour des lèvres pour ne pas déborder
+ *
+ * Indices landmarks utilisés (contour extérieur lèvres) :
+ *   [61,146,91,181,84,17,314,405,321,375,291,308,324,318,402,317,14,87,178,88,95,78]
  */
+function applyMetallicIridescence(lm, W, H, pose, opacity) {
+  if (!webglCtx) return;
+
+  // Récupération du contour des lèvres pour créer le clipping path
+  const outerLipIdx = [61,146,91,181,84,17,314,405,321,375,291,308,324,318,402,317,14,87,178,88,95,78];
+  const outerLip = outerLipIdx.map(i => pt(lm, i, W, H));
+
+  // Bounding box des lèvres pour positionner les spots
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  outerLip.forEach(p => {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  });
+  const lipsW = maxX - minX;
+  const lipsH = maxY - minY;
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+
+  // 3 spots iridescents (cyan, magenta, jaune)
+  // Chaque couleur a sa position de base, modulée par yaw/pitch
+  // pour créer l'effet de glissement
+  const spots = [
+    {
+      color:  'rgba(80, 200, 255',  // cyan
+      baseX:  -0.25,  // décalage relatif (-0.5 à 0.5 = bounding box)
+      baseY:  -0.15,
+      offsetMul: 0.4, // amplitude du mouvement
+    },
+    {
+      color:  'rgba(255, 80, 200',  // magenta
+      baseX:  0.0,
+      baseY:  0.20,
+      offsetMul: 0.5,
+    },
+    {
+      color:  'rgba(255, 220, 80',  // jaune
+      baseX:  0.25,
+      baseY:  -0.10,
+      offsetMul: 0.4,
+    },
+  ];
+
+  // Intensité globale : 35% à face, diminue à 5% de profil
+  const profileFactor = 1 - Math.abs(pose.yaw) * 0.6;
+  const globalAlpha = 0.35 * opacity * profileFactor;
+  if (globalAlpha < 0.04) return; // trop faible pour être visible
+
+  // Compositing : on dessine sur un canvas temporaire,
+  // puis on le compose avec un clip aux contours des lèvres
+  // pour ne pas déborder.
+  webglCtx.save();
+
+  // 1. Créer le path de clipping = contour des lèvres
+  webglCtx.beginPath();
+  webglCtx.moveTo(outerLip[0].x, outerLip[0].y);
+  for (let i = 1; i < outerLip.length; i++) {
+    webglCtx.lineTo(outerLip[i].x, outerLip[i].y);
+  }
+  webglCtx.closePath();
+  webglCtx.clip();
+
+  // 2. Composition 'color-dodge' = effet lumière colorée
+  //    qui éclaircit la base sans la décolorer entièrement
+  webglCtx.globalCompositeOperation = 'color-dodge';
+
+  // 3. Dessiner chaque spot avec décalage selon orientation
+  const radius = Math.max(lipsW, lipsH) * 0.45; // gros spot diffus
+  spots.forEach(spot => {
+    // Position décalée par l'orientation
+    const x = cx + (spot.baseX + pose.yaw   * spot.offsetMul) * lipsW;
+    const y = cy + (spot.baseY + pose.pitch * spot.offsetMul) * lipsH;
+
+    // Si on a le roll (matrice 4×4), faire pivoter autour du centre lèvres
+    let finalX = x, finalY = y;
+    if (currentFaceMatrix && Math.abs(pose.roll) > 0.05) {
+      const angle = pose.roll * Math.PI / 6; // jusqu'à ±30°
+      const dx = x - cx, dy = y - cy;
+      finalX = cx + dx * Math.cos(angle) - dy * Math.sin(angle);
+      finalY = cy + dx * Math.sin(angle) + dy * Math.cos(angle);
+    }
+
+    // Gradient radial flou pour fondu doux
+    const grad = webglCtx.createRadialGradient(finalX, finalY, 0, finalX, finalY, radius);
+    grad.addColorStop(0,    `${spot.color}, ${globalAlpha})`);
+    grad.addColorStop(0.5,  `${spot.color}, ${globalAlpha * 0.4})`);
+    grad.addColorStop(1,    `${spot.color}, 0)`);
+
+    webglCtx.fillStyle = grad;
+    webglCtx.beginPath();
+    webglCtx.arc(finalX, finalY, radius, 0, Math.PI * 2);
+    webglCtx.fill();
+  });
+
+  webglCtx.restore();
+}
+
+
 function applyDynamicHighlights(lm, W, H) {
   initWebglOverlay();
   if (!webglCtx) return;
@@ -3382,6 +3493,13 @@ function applyDynamicHighlights(lm, W, H) {
     const cornerR = pt(lm, 291, W, H);
     drawDynamicSpot(cornerL, 6 * scale, lipsIntensity * 0.3, pose, 5);
     drawDynamicSpot(cornerR, 6 * scale, lipsIntensity * 0.3, pose, 5);
+
+    // ÉTAPE 3/4 — Iridescence metallic
+    // Reflets colorés (cyan/magenta/jaune) qui glissent selon l'angle.
+    // Simule les pigments métalliques qui décomposent la lumière.
+    if (style === 'metallic') {
+      applyMetallicIridescence(lm, W, H, pose, m.op);
+    }
   }
 
   // ========================================================
