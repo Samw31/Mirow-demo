@@ -378,6 +378,56 @@ body {
   .photo-back-btn { width: 44px; height: 44px; bottom: 16px; left: 16px; }
 }
 
+/* Bouton "Avant/Après" : maintenir pour voir le visage sans maquillage */
+/* Position en haut-droite de la zone caméra, style cohérent avec photo-back-btn */
+.compare-before-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  height: 36px;
+  padding: 0 14px 0 12px;
+  border-radius: 99px;
+  background: rgba(9, 9, 15, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--cream);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 15;
+  transition: transform 0.15s, background 0.2s, border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-family: 'Inter', sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.compare-before-btn .compare-before-label {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.compare-before-btn:hover {
+  border-color: rgba(168, 85, 247, 0.5);
+}
+/* État "actif" : pendant le maintien, on a un visuel marqué */
+.compare-before-btn.active {
+  background: var(--gradient-neon);
+  border-color: transparent;
+  transform: scale(0.96);
+  box-shadow: 0 4px 16px rgba(168, 85, 247, 0.45);
+}
+.compare-before-btn.active .compare-before-label {
+  color: #fff;
+}
+@media (max-width: 640px) {
+  .compare-before-btn { height: 32px; padding: 0 12px 0 10px; top: 12px; right: 12px; }
+  .compare-before-btn .compare-before-label { font-size: 9px; }
+}
+
 /* État erreur caméra — message utilisateur clair */
 .cam-error {
   display: none;
@@ -1448,6 +1498,14 @@ input[type=range]::-moz-range-thumb {
         </svg>
       </button>
 
+      <!-- Bouton "Avant/Après" : maintien pour voir le visage sans maquillage -->
+      <button class="compare-before-btn" id="compareBeforeBtn" aria-label="Voir avant/après" style="display:none;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <path d="M12 4V20M5 8L2 12L5 16M19 8L22 12L19 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="compare-before-label">AVANT</span>
+      </button>
+
       <!-- Flash blanc pendant la capture -->
       <div class="capture-flash" id="captureFlash"></div>
 
@@ -1537,7 +1595,7 @@ input[type=range]::-moz-range-thumb {
             <span>Intensité</span>
             <span id="opVal">70%</span>
           </div>
-          <input type="range" min="10" max="100" value="70" id="opSlider">
+          <input type="range" min="0" max="100" value="70" id="opSlider">
         </div>
       </div>
 
@@ -2509,6 +2567,10 @@ let compareLookA = 'natural';      // id du look côté gauche
 let compareLookB = 'glam';         // id du look côté droit
 let compareSliderPos = 0.5;        // 0=tout gauche, 0.5=centre, 1=tout droite
 
+// Bouton "Avant/Après" : actif pendant le maintien du bouton
+// Quand true → applyMakeupAR ne dessine rien (visage nu visible)
+let compareBeforeActive = false;
+
 // Tone matching — détecté au démarrage et stocké
 // Niveaux : 'very-light' | 'light' | 'medium' | 'deep' | null (avant détection)
 let detectedTone = null;
@@ -3108,6 +3170,14 @@ function applyMakeupAR(lm, W, H) {
   // On le fait UNE seule fois pour stabilité visuelle
   if (detectedTone === null) {
     detectSkinTone(lm, W, H);
+  }
+
+  // BOUTON AVANT/APRÈS : si actif, on saute tout le rendu maquillage
+  // → la cliente voit son visage SANS maquillage (canvas resté vide)
+  // Le canvas WebGL est aussi clear pour ne pas montrer les reflets dynamiques
+  if (compareBeforeActive) {
+    if (webglCtx) webglCtx.clearRect(0, 0, W, H);
+    return;
   }
 
   // MODE COMPARAISON : on rend 2 looks côte à côte avec clip vertical
@@ -5029,6 +5099,10 @@ function enterPhotoMode(img, landmarks) {
   photoBackBtn.style.display = 'flex';
   if (captureBtn) captureBtn.classList.remove('show');
 
+  // Afficher le bouton Avant/Après aussi en mode photo
+  const cbBtn = document.getElementById('compareBeforeBtn');
+  if (cbBtn) cbBtn.style.display = 'inline-flex';
+
   // Premier rendu
   renderPhotoFrame();
 
@@ -5062,6 +5136,13 @@ function exitPhotoMode() {
   photoView.src = '';
   video.style.display = '';
   photoBackBtn.style.display = 'none';
+
+  // Cacher aussi le bouton Avant/Après
+  const cbBtn = document.getElementById('compareBeforeBtn');
+  if (cbBtn) cbBtn.style.display = 'none';
+  // Et reset son état au cas où on l'avait laissé en mode "before"
+  compareBeforeActive = false;
+  if (cbBtn) cbBtn.classList.remove('active');
 
   // Effacer le canvas
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -5152,6 +5233,60 @@ photoUploadInp.addEventListener('change', (e) => {
 photoBackBtn.addEventListener('click', exitPhotoMode);
 
 // ============================================================
+// BOUTON "AVANT/APRÈS" — comparaison rapide visage nu vs maquillé
+// ============================================================
+// Comportement : maintien (mousedown/touchstart) → cache le maquillage.
+// Relâche → réaffiche. Pas un toggle, plus tactile et démonstratif.
+// On gère mouse + touch + pointerleave/cancel pour ne pas rester
+// bloqué en mode "avant" si le doigt sort du bouton.
+// ============================================================
+const compareBeforeBtn = document.getElementById('compareBeforeBtn');
+
+/**
+ * Active le mode "Avant" (visage nu visible)
+ */
+function startBeforeCompare(e) {
+  if (e) e.preventDefault(); // évite scroll mobile + clics fantômes
+  if (compareBeforeActive) return;
+  compareBeforeActive = true;
+  compareBeforeBtn.classList.add('active');
+  // Changer le label en "APRÈS" pendant le maintien pour clarté
+  const label = compareBeforeBtn.querySelector('.compare-before-label');
+  if (label) label.textContent = 'APRÈS';
+  // En mode photo, re-render immédiat (sinon on attend le prochain frame)
+  if (photoMode && typeof renderPhotoFrame === 'function') renderPhotoFrame();
+  // Analytics
+  if (typeof mirowTrack === 'function') mirowTrack('comparison_toggled', { state: 'before' });
+}
+
+/**
+ * Désactive le mode "Avant" (réaffiche le maquillage)
+ */
+function endBeforeCompare(e) {
+  if (e) e.preventDefault();
+  if (!compareBeforeActive) return;
+  compareBeforeActive = false;
+  compareBeforeBtn.classList.remove('active');
+  const label = compareBeforeBtn.querySelector('.compare-before-label');
+  if (label) label.textContent = 'AVANT';
+  // En mode photo, re-render immédiat
+  if (photoMode && typeof renderPhotoFrame === 'function') renderPhotoFrame();
+  // Analytics
+  if (typeof mirowTrack === 'function') mirowTrack('comparison_toggled', { state: 'after' });
+}
+
+// Gestion mouse (desktop)
+compareBeforeBtn.addEventListener('mousedown',  startBeforeCompare);
+compareBeforeBtn.addEventListener('mouseup',    endBeforeCompare);
+compareBeforeBtn.addEventListener('mouseleave', endBeforeCompare);
+// Gestion touch (mobile) - passive:false pour autoriser preventDefault
+compareBeforeBtn.addEventListener('touchstart',  startBeforeCompare, { passive: false });
+compareBeforeBtn.addEventListener('touchend',    endBeforeCompare);
+compareBeforeBtn.addEventListener('touchcancel', endBeforeCompare);
+// Sécurité : si le bouton perd le focus en plein milieu, on désactive
+compareBeforeBtn.addEventListener('blur', endBeforeCompare);
+
+// ============================================================
 // CAPTURE PHOTO + PARTAGE
 // ============================================================
 // Composition vidéo + maquillage AR → image PNG/JPG
@@ -5178,6 +5313,9 @@ let lastCaptureDataUrl = null;
  */
 function showCaptureButton() {
   if (captureBtn) captureBtn.classList.add('show');
+  // Bouton Avant/Après dispo dès que la cam est active
+  const cbBtn = document.getElementById('compareBeforeBtn');
+  if (cbBtn) cbBtn.style.display = 'inline-flex';
 }
 
 /**
