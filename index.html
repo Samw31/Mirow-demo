@@ -3151,46 +3151,119 @@ let webglCanvas = null;
 let webglCtx = null;
 
 /**
- * Estime l'orientation de la tête à partir des landmarks 2D.
- * Retourne { yaw, pitch } en valeurs normalisées (-1 à 1).
+ * Estime l'orientation de la tête.
  *
+ * MODE PRÉCIS (Tasks Vision) : extraction directe des angles d'Euler
+ * depuis la matrice 4×4 de transformation faciale. Beaucoup plus
+ * précis et stable que l'estimation 2D, surtout sur les angles forts.
+ *
+ * MODE FALLBACK (FaceMesh legacy) : estimation à partir des ratios
+ * de landmarks 2D. Moins précis mais fonctionne sans matrice 3D.
+ *
+ * Retourne { yaw, pitch, roll } en valeurs normalisées (-1 à 1).
  *  - yaw  : -1 = tête tournée à fond à gauche, +1 = à fond à droite
  *  - pitch: -1 = tête baissée, +1 = tête levée
+ *  - roll : -1 = inclinée à gauche, +1 = à droite (nouveau, étape 2)
  */
 function estimateHeadPose(lm, W, H) {
-  // Points anatomiques de référence
-  const noseTip   = pt(lm, 1,   W, H); // pointe du nez
-  const leftEye   = pt(lm, 33,  W, H); // coin externe œil gauche
-  const rightEye  = pt(lm, 263, W, H); // coin externe œil droit
-  const chinPt    = pt(lm, 152, W, H); // menton
+  // ========================================================
+  // MODE PRÉCIS : matrice 4×4 (Tasks Vision)
+  // ========================================================
+  if (currentFaceMatrix && currentFaceMatrix.length === 16) {
+    return extractEulerFromMatrix(currentFaceMatrix);
+  }
 
-  // YAW : on compare la distance nose↔left vs nose↔right
-  // Quand la tête tourne à droite, le nez se rapproche de l'œil droit
+  // ========================================================
+  // MODE FALLBACK : estimation 2D depuis landmarks
+  // ========================================================
+  const noseTip   = pt(lm, 1,   W, H);
+  const leftEye   = pt(lm, 33,  W, H);
+  const rightEye  = pt(lm, 263, W, H);
+  const chinPt    = pt(lm, 152, W, H);
+
+  // YAW : ratio distance nez↔œil gauche vs nez↔œil droit
   const distLeft  = Math.abs(noseTip.x - leftEye.x);
   const distRight = Math.abs(rightEye.x - noseTip.x);
   const totalDist = distLeft + distRight;
   let yaw = 0;
   if (totalDist > 0) {
-    // Ratio normalisé : 0 = équilibré (face), positif = tourné droite
     yaw = (distLeft - distRight) / totalDist;
-    // Clamp pour limiter les valeurs extrêmes
     yaw = Math.max(-1, Math.min(1, yaw * 2));
   }
 
-  // PITCH : on regarde la distance verticale nez↔menton
-  // Plus le visage est levé, plus le nez paraît proche du menton (en 2D)
+  // PITCH : position verticale du nez vs plan yeux↔menton
   const eyeLine = (leftEye.y + rightEye.y) / 2;
   const eyeToNose  = noseTip.y - eyeLine;
   const eyeToChin  = chinPt.y - eyeLine;
   let pitch = 0;
   if (eyeToChin > 0) {
-    // Référence neutre : nez se trouve à ~35% du segment yeux→menton
     const ratio = eyeToNose / eyeToChin;
-    pitch = (ratio - 0.35) * -3; // inversion : ratio bas = tête levée
+    pitch = (ratio - 0.35) * -3;
     pitch = Math.max(-1, Math.min(1, pitch));
   }
 
-  return { yaw, pitch };
+  // ROLL : angle des yeux vs horizontale
+  const dy = rightEye.y - leftEye.y;
+  const dx = rightEye.x - leftEye.x;
+  let roll = 0;
+  if (dx !== 0) {
+    roll = Math.atan2(dy, dx) / (Math.PI / 4); // normalise à ±45°
+    roll = Math.max(-1, Math.min(1, roll));
+  }
+
+  return { yaw, pitch, roll };
+}
+
+/**
+ * Extrait les angles d'Euler (yaw, pitch, roll) d'une matrice 4×4
+ * de transformation. Math standard 3D : décomposition d'une matrice
+ * de rotation orthogonale en angles Tait-Bryan ZYX.
+ *
+ * La matrice MediaPipe est en column-major (format OpenGL standard) :
+ *   m[0]  m[4]  m[8]   m[12]
+ *   m[1]  m[5]  m[9]   m[13]
+ *   m[2]  m[6]  m[10]  m[14]
+ *   m[3]  m[7]  m[11]  m[15]
+ *
+ * Les 9 valeurs en haut-gauche (m[0..2], m[4..6], m[8..10]) sont la
+ * matrice de rotation 3×3.
+ */
+function extractEulerFromMatrix(m) {
+  // Extraction Tait-Bryan ZYX (convention aviation : yaw → pitch → roll)
+  // Référence : https://en.wikipedia.org/wiki/Rotation_matrix#Conversion_from_rotation_matrix_to_axis%E2%80%93angle
+  const r00 = m[0],  r01 = m[4],  r02 = m[8];
+  const r10 = m[1],  r11 = m[5],  r12 = m[9];
+  const r20 = m[2],  r21 = m[6],  r22 = m[10];
+
+  let yawRad, pitchRad, rollRad;
+
+  // Pitch = -asin(r20) (élévation autour de X)
+  // Gestion du gimbal lock quand pitch est proche de ±90°
+  if (Math.abs(r20) < 0.9999) {
+    pitchRad = -Math.asin(r20);
+    yawRad   = Math.atan2(r21, r22); // rotation autour de Y
+    rollRad  = Math.atan2(r10, r00); // rotation autour de Z
+  } else {
+    // Gimbal lock : on perd la séparation yaw/roll
+    pitchRad = -Math.asin(r20);
+    rollRad  = 0;
+    yawRad   = Math.atan2(-r12, r11);
+  }
+
+  // Normalisation -1 à 1 (en partant de l'amplitude utile : ±45° suffit
+  // pour un essayage make-up, au-delà la cliente ne se voit plus)
+  const RAD_45 = Math.PI / 4;
+  let yaw   = Math.max(-1, Math.min(1, yawRad   / RAD_45));
+  let pitch = Math.max(-1, Math.min(1, pitchRad / RAD_45));
+  let roll  = Math.max(-1, Math.min(1, rollRad  / RAD_45));
+
+  // CORRECTION D'AXES MediaPipe :
+  // MediaPipe utilise un repère où Y pointe vers le bas (convention image),
+  // donc le signe du yaw est inversé par rapport à notre convention
+  // "+1 = tête tournée à droite vue de face"
+  yaw = -yaw;
+
+  return { yaw, pitch, roll };
 }
 
 /**
@@ -3206,22 +3279,32 @@ function initWebglOverlay() {
 /**
  * Dessine un reflet (spot lumineux) avec décalage selon orientation.
  *
+ * NIVEAU 2 ÉTAPE 2 : utilise yaw + pitch + roll (3 axes) issus de
+ * la matrice 4×4 quand Tasks Vision est actif. Le roll permet de
+ * faire pivoter le spot autour du centre quand la tête s'incline,
+ * ce qui n'était pas possible avant.
+ *
  * @param {Object} center - {x, y} centre nominal du spot
  * @param {number} radius - rayon du spot en pixels
  * @param {number} intensity - 0 à 1, intensité du blanc
- * @param {Object} pose - {yaw, pitch}
+ * @param {Object} pose - {yaw, pitch, roll}
  * @param {number} offsetMul - amplitude du décalage (px max)
  */
 function drawDynamicSpot(center, radius, intensity, pose, offsetMul) {
-  // Décalage de la position du spot selon orientation
-  // (la lumière "se déplace" sur le visage quand on tourne la tête)
-  const offsetX = -pose.yaw   * offsetMul;
-  const offsetY = -pose.pitch * offsetMul * 0.6; // pitch moins amplifié
+  // Décalage de position selon yaw/pitch
+  // Avec matrice 4×4, on peut amplifier légèrement car les valeurs
+  // sont plus précises (avant on bridait pour compenser le bruit)
+  const isPrecise = currentFaceMatrix && currentFaceMatrix.length === 16;
+  const amp = isPrecise ? 1.4 : 1.0; // 40% plus de course en mode précis
+
+  const offsetX = -pose.yaw   * offsetMul * amp;
+  const offsetY = -pose.pitch * offsetMul * 0.6 * amp;
   const x = center.x + offsetX;
   const y = center.y + offsetY;
 
-  // Intensité atténuée quand la tête est de profil (le reflet diminue)
-  const profileFactor = 1 - Math.abs(pose.yaw) * 0.4;
+  // Atténuation quand la tête est de profil
+  // En mode précis, l'atténuation est plus douce (calcul plus fiable)
+  const profileFactor = 1 - Math.abs(pose.yaw) * (isPrecise ? 0.3 : 0.4);
   const finalIntensity = intensity * profileFactor;
 
   // Spot = radial gradient blanc avec dégradation douce
@@ -3231,10 +3314,26 @@ function drawDynamicSpot(center, radius, intensity, pose, offsetMul) {
   grad.addColorStop(0.8,  `rgba(255,255,255,${finalIntensity * 0.1})`);
   grad.addColorStop(1,    'rgba(255,255,255,0)');
 
-  webglCtx.fillStyle = grad;
-  webglCtx.beginPath();
-  webglCtx.arc(x, y, radius, 0, Math.PI * 2);
-  webglCtx.fill();
+  // Si on a le roll (inclinaison tête), on déforme légèrement le spot
+  // en ellipse orientée pour simuler le rebond directionnel de lumière.
+  // Sans roll (mode fallback 2D), le spot reste circulaire.
+  if (isPrecise && Math.abs(pose.roll) > 0.05) {
+    webglCtx.save();
+    webglCtx.translate(x, y);
+    webglCtx.rotate(pose.roll * Math.PI / 8); // jusqu'à ±22.5°
+    webglCtx.scale(1.15, 0.85); // ellipse aplatie selon l'angle
+    webglCtx.translate(-x, -y);
+    webglCtx.fillStyle = grad;
+    webglCtx.beginPath();
+    webglCtx.arc(x, y, radius, 0, Math.PI * 2);
+    webglCtx.fill();
+    webglCtx.restore();
+  } else {
+    webglCtx.fillStyle = grad;
+    webglCtx.beginPath();
+    webglCtx.arc(x, y, radius, 0, Math.PI * 2);
+    webglCtx.fill();
+  }
 }
 
 /**
