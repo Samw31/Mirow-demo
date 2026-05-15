@@ -3982,17 +3982,18 @@ function applyLips(lm, W, H) {
     },
     metallic: {
       // Metallic : reflets multiples, saturation boostée, micro-paillettes
+      // POLISH v3.10.2 : reflets adoucis (shineOp 0.32→0.22, sideShine 0.18→0.12)
       baseOp:        m.op * 0.78 * toneAdj.opMultiplier,
       lowerLightenR: 35,            // contraste fort haut/bas
       lowerLightenG: 18,
       lowerLightenB: 22,
-      shineOp:       0.32,          // reflet central fort
-      shineSize:     0.28,
-      sideShineOp:   0.18,          // reflets latéraux marqués
+      shineOp:       0.22,          // reflet central modéré (était 0.32)
+      shineSize:     0.32,          // un peu plus diffus (était 0.28)
+      sideShineOp:   0.12,          // reflets latéraux plus subtils (était 0.18)
       saturationBoost: 1.15 * toneAdj.satBoost, // metallic +15% × tone
-      blurAmount:    1.8,
+      blurAmount:    2.2,           // blur augmenté pour adoucir (était 1.8)
       grainNoise:    false,
-      shimmer:       true,          // points lumineux supplémentaires
+      shimmer:       true,          // points lumineux supplémentaires (diffus)
     },
   };
 
@@ -4095,13 +4096,18 @@ function applyLips(lm, W, H) {
   }
 
   // ========================================================
-  // COUCHE 5 — SHIMMER METALLIC (points lumineux)
+  // COUCHE 5 — SHIMMER METALLIC (halos diffus subtils)
   // Simule les micro-particules réfléchissantes des lipsticks metallic
+  //
+  // POLISH v3.10.2 : transformation des points blancs nets en halos
+  // flous (radial gradient + blur). Moins de "points" visibles,
+  // plus de "lueur globale" qui donne juste un effet métallisé.
+  // Nombre réduit de 12 → 6 + opacité divisée par 2.
   // ========================================================
   if (params.shimmer) {
-    // 8 petits points lumineux répartis sur les lèvres
-    // Position pseudo-aléatoire mais déterministe (pour stabilité visuelle)
-    const shimmerCount = 12;
+    const shimmerCount = 6; // réduit de 12 à 6
+    tc.save();
+    tc.filter = 'blur(2.5px)'; // flou pour adoucir
     for (let i = 0; i < shimmerCount; i++) {
       // Distribution sur la largeur des lèvres
       const t = (i / (shimmerCount - 1));
@@ -4111,13 +4117,23 @@ function applyLips(lm, W, H) {
       const baseY = isUpper ? lipCenter.y - 3 : lipCenter.y + 3;
       const y = baseY + Math.sin(i * 4.7) * 2;
 
-      // Petit point blanc translucide
-      const radius = 0.8 + (Math.sin(i * 7.3) + 1) * 0.6;
+      // Halo radial flou au lieu d'un point net
+      // Taille augmentée (3-5px au lieu de 0.8-2px) pour effet diffus
+      const radius = 3 + (Math.sin(i * 7.3) + 1) * 1.5;
+      // Opacité divisée par 2 (0.2-0.3 au lieu de 0.4-0.6)
+      const op = 0.15 + Math.abs(Math.sin(i * 11.1)) * 0.1;
+
+      const grad = tc.createRadialGradient(x, y, 0, x, y, radius);
+      grad.addColorStop(0,   `rgba(255,255,255,${op})`);
+      grad.addColorStop(0.6, `rgba(255,255,255,${op * 0.3})`);
+      grad.addColorStop(1,   'rgba(255,255,255,0)');
+      tc.fillStyle = grad;
       tc.beginPath();
       tc.arc(x, y, radius, 0, Math.PI * 2);
-      tc.fillStyle = `rgba(255,255,255,${0.4 + Math.sin(i * 11.1) * 0.2})`;
       tc.fill();
     }
+    tc.filter = 'none';
+    tc.restore();
   }
 
   // ========================================================
