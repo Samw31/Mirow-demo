@@ -1645,8 +1645,20 @@ input[type=range]::-moz-range-thumb {
 <div class="toast" id="toast"></div>
 
 <!-- Librairies MediaPipe (chargées en différé pour ne pas bloquer le rendu initial) -->
+<!-- Legacy FaceMesh : conservé en fallback de sécurité au cas où Tasks Vision plante -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+<!-- Tasks Vision (moderne) : permet matrice 4×4 transformations + blendshapes -->
+<!-- Chargé en module ES6 — supporté nativement par tous navigateurs récents -->
+<script type="module">
+  import { FilesetResolver, FaceLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+  // Expose les classes globalement pour usage dans le script principal
+  window.MP_FilesetResolver = FilesetResolver;
+  window.MP_FaceLandmarker = FaceLandmarker;
+  // Flag pour savoir quand Tasks Vision est dispo
+  window.MP_TASKS_READY = true;
+  console.log('[Mirow] Tasks Vision module loaded');
+</script>
 
 <script>
 // ============================================================
@@ -2837,7 +2849,7 @@ async function startCamera() {
     camOverlay.classList.add('hidden');
     statusDot.classList.add('on');
     statusText.textContent = 'Détection active';
-    initFaceMesh();
+    initTracker(); // Tasks Vision si dispo, sinon FaceMesh fallback
     // Afficher le bouton capture (la cam\u00e9ra est maintenant active)
     if (typeof showCaptureButton === 'function') showCaptureButton();
     // ANALYTICS : try-on session démarrée
@@ -2850,6 +2862,159 @@ async function startCamera() {
   }
 }
 
+// ============================================================
+// TRACKER FACIAL — Tasks Vision (préféré) avec fallback FaceMesh
+// ============================================================
+// On utilise Tasks Vision (API moderne MediaPipe) qui apporte :
+//   - Matrice 4×4 de transformation (orientation tête précise)
+//   - Blendshapes (52 expressions faciales)
+//   - Latence plus faible (modèle optimisé)
+//   - Compatibilité WebGL native (pas de SIMD requis)
+//
+// Fallback FaceMesh : si Tasks Vision n'est pas chargé ou plante,
+// on retombe sur l'ancien tracker pour ne pas casser le widget.
+//
+// Format de sortie standardisé pour le reste du code :
+//   { multiFaceLandmarks: [[{x,y,z}, ...]], faceMatrix: [16 floats] }
+// ============================================================
+
+let activeTracker = null;       // 'tasks' | 'facemesh'
+let mpFaceLandmarker = null;    // instance Tasks Vision
+let lastVideoTime = -1;         // pour throttler les détections
+
+/**
+ * Initialise le tracker facial.
+ * Essaie Tasks Vision d'abord, retombe sur FaceMesh si échec.
+ */
+async function initTracker() {
+  // Attendre que le module Tasks Vision soit chargé (max 3s)
+  const tasksReady = await waitForTasksVision(3000);
+
+  if (tasksReady) {
+    try {
+      await initTasksTracker();
+      activeTracker = 'tasks';
+      console.log('[Mirow] Tracker actif : Tasks Vision');
+      return;
+    } catch (err) {
+      console.warn('[Mirow] Tasks Vision init failed, fallback to FaceMesh:', err);
+    }
+  }
+
+  // Fallback : FaceMesh legacy
+  initFaceMesh();
+  activeTracker = 'facemesh';
+  console.log('[Mirow] Tracker actif : FaceMesh (legacy fallback)');
+}
+
+/**
+ * Attend que le module Tasks Vision soit chargé (import ES6 asynchrone).
+ */
+function waitForTasksVision(timeoutMs) {
+  return new Promise(resolve => {
+    if (window.MP_TASKS_READY) { resolve(true); return; }
+    const start = Date.now();
+    const interval = setInterval(() => {
+      if (window.MP_TASKS_READY) {
+        clearInterval(interval);
+        resolve(true);
+      } else if (Date.now() - start > timeoutMs) {
+        clearInterval(interval);
+        resolve(false);
+      }
+    }, 50);
+  });
+}
+
+/**
+ * Init Tasks Vision : charge le modèle FaceLandmarker + lance la boucle.
+ */
+async function initTasksTracker() {
+  const FilesetResolver = window.MP_FilesetResolver;
+  const FaceLandmarker  = window.MP_FaceLandmarker;
+  if (!FilesetResolver || !FaceLandmarker) {
+    throw new Error('Tasks Vision module not loaded');
+  }
+
+  // Charge le runtime WASM
+  const fileset = await FilesetResolver.forVisionTasks(
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+  );
+
+  // Crée le FaceLandmarker avec les options qui nous intéressent
+  mpFaceLandmarker = await FaceLandmarker.createFromOptions(fileset, {
+    baseOptions: {
+      modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+      delegate: 'GPU',  // Utiliser le GPU pour les perfs (fallback CPU auto)
+    },
+    runningMode: 'VIDEO',
+    numFaces: 1,
+    // Matrice 4×4 — l'apport principal pour le rendu pro
+    outputFacialTransformationMatrixes: true,
+    // Blendshapes — pour anti-débordement (yeux fermés, bouche ouverte)
+    outputFaceBlendshapes: true,
+    // Refine landmarks pour précision sur lèvres et iris
+    // (équivalent du refineLandmarks de FaceMesh)
+  });
+
+  // Boucle de détection synchronisée avec le rendu video
+  function loop() {
+    if (activeTracker !== 'tasks') return; // arrêt si on a switch en fallback
+    if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+      lastVideoTime = video.currentTime;
+      try {
+        const results = mpFaceLandmarker.detectForVideo(video, performance.now());
+        onResultsTasks(results);
+      } catch (err) {
+        console.warn('[Mirow] Tasks detect error:', err);
+      }
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+}
+
+/**
+ * Convertit le format Tasks Vision vers le format attendu par onResults legacy.
+ * Tasks renvoie { faceLandmarks: [[{x,y,z}, ...]], facialTransformationMatrixes, faceBlendshapes }
+ * On standardise en { multiFaceLandmarks: [[...]], faceMatrix: [16], blendshapes: {...} }
+ */
+function onResultsTasks(results) {
+  if (!results.faceLandmarks || results.faceLandmarks.length === 0) {
+    // Pas de visage → clear et return
+    const W = video.videoWidth || 640;
+    const H = video.videoHeight || 480;
+    if (canvas.width !== W) canvas.width = W;
+    if (canvas.height !== H) canvas.height = H;
+    ctx.clearRect(0, 0, W, H);
+    // Clear aussi le canvas WebGL overlay s'il existe
+    if (webglCtx) webglCtx.clearRect(0, 0, W, H);
+    return;
+  }
+
+  // Format compatible avec onResults legacy
+  const standardized = {
+    multiFaceLandmarks: results.faceLandmarks,
+  };
+
+  // Bonus : matrice 4×4 (utile aux étapes 2-4 de la migration)
+  if (results.facialTransformationMatrixes && results.facialTransformationMatrixes.length > 0) {
+    standardized.faceMatrix = results.facialTransformationMatrixes[0].data;
+  }
+  // Bonus : blendshapes (clignement, bouche ouverte... pour étape 4)
+  if (results.faceBlendshapes && results.faceBlendshapes.length > 0) {
+    standardized.blendshapes = {};
+    results.faceBlendshapes[0].categories.forEach(cat => {
+      standardized.blendshapes[cat.categoryName] = cat.score;
+    });
+  }
+
+  onResults(standardized);
+}
+
+/**
+ * Init FaceMesh legacy (fallback de sécurité).
+ */
 function initFaceMesh() {
   const fm = new FaceMesh({
     locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`,
@@ -2894,6 +3059,11 @@ function initFaceMesh() {
 // alpha = 0.5 = bon compromis pour mobile
 // ============================================================
 let smoothedLandmarks = null;
+
+// Données 3D issues de Tasks Vision (null si fallback FaceMesh)
+// Utilisées par les modules de rendu Niveau 2+ pour précision
+let currentFaceMatrix  = null;  // Float32Array de 16 valeurs (transform 4×4)
+let currentBlendshapes = null;  // { eyeBlinkLeft: 0.05, mouthOpen: 0.2, ... }
 const SMOOTHING_ALPHA = 0.5;
 
 function smoothLandmarks(currentLm) {
@@ -2919,6 +3089,12 @@ function onResults(results) {
   if (canvas.width !== W) canvas.width = W;
   if (canvas.height !== H) canvas.height = H;
   ctx.clearRect(0, 0, W, H);
+
+  // POLISH NIVEAU 2+ : si Tasks Vision est actif, on stocke
+  // la matrice 4×4 et les blendshapes pour usage par les
+  // modules de rendu (reflets dynamiques précis, etc.)
+  currentFaceMatrix  = results.faceMatrix  || null;
+  currentBlendshapes = results.blendshapes || null;
 
   if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
     // Lissage temporel pour réduire le jitter
