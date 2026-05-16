@@ -3126,7 +3126,31 @@ let smoothedLandmarks = null;
 // Utilisées par les modules de rendu Niveau 2+ pour précision
 let currentFaceMatrix  = null;  // Float32Array de 16 valeurs (transform 4×4)
 let currentBlendshapes = null;  // { eyeBlinkLeft: 0.05, mouthOpen: 0.2, ... }
-const SMOOTHING_ALPHA = 0.5;
+// ============================================================
+// SMOOTHING ADAPTATIF DES LANDMARKS
+// ------------------------------------------------------------
+// v3.11.4 - SMOOTHING ADAPTATIF (anti-tremblement mobile)
+//
+// Problème : sur iPhone tenu en main, les microbougeries du téléphone
+// (cause 1) faisaient sauter le maquillage en place.
+//
+// Solution : alpha (force du lissage) qui s'adapte à la vitesse du
+// mouvement détecté :
+//  - Mouvement lent (< 0.005 unités normalisées) = microbougerie
+//    → alpha bas (0.15) = forte inertie, on absorbe le tremblement
+//  - Mouvement rapide (> 0.025) = vrai mouvement de tête
+//    → alpha haut (0.65) = peu d'inertie, on suit le visage
+//  - Entre les deux : interpolation linéaire
+//
+// Résultat : maquillage stable au repos ET réactif en mouvement.
+// C'est la technique utilisée par les apps de filtres pro
+// (TikTok, Snapchat) sous l'appellation "One Euro Filter" simplifié.
+// ============================================================
+
+const SMOOTHING_ALPHA_MIN = 0.15; // forte inertie pour microbougeries
+const SMOOTHING_ALPHA_MAX = 0.65; // faible inertie pour vrais mouvements
+const MOVEMENT_THRESHOLD_LOW  = 0.005; // en-dessous = microbougerie
+const MOVEMENT_THRESHOLD_HIGH = 0.025; // au-dessus = vrai mouvement
 
 function smoothLandmarks(currentLm) {
   if (!smoothedLandmarks) {
@@ -3135,11 +3159,36 @@ function smoothLandmarks(currentLm) {
     return smoothedLandmarks;
   }
 
-  // EMA pour chaque landmark
+  // Calcul de la vitesse moyenne du mouvement entre la frame précédente
+  // et la nouvelle, sur quelques points-clés du visage (pas tout le maillage,
+  // pour économiser CPU). On utilise le nez, les yeux et les coins de bouche.
+  const samplePoints = [1, 33, 263, 61, 291, 152]; // nez, yeux, coins lèvres, menton
+  let totalDist = 0;
+  for (const i of samplePoints) {
+    const dx = currentLm[i].x - smoothedLandmarks[i].x;
+    const dy = currentLm[i].y - smoothedLandmarks[i].y;
+    totalDist += Math.sqrt(dx * dx + dy * dy);
+  }
+  const avgMovement = totalDist / samplePoints.length;
+
+  // Calcul de l'alpha adaptatif (interpolation linéaire entre min et max)
+  let alpha;
+  if (avgMovement <= MOVEMENT_THRESHOLD_LOW) {
+    alpha = SMOOTHING_ALPHA_MIN;
+  } else if (avgMovement >= MOVEMENT_THRESHOLD_HIGH) {
+    alpha = SMOOTHING_ALPHA_MAX;
+  } else {
+    const ratio = (avgMovement - MOVEMENT_THRESHOLD_LOW) /
+                  (MOVEMENT_THRESHOLD_HIGH - MOVEMENT_THRESHOLD_LOW);
+    alpha = SMOOTHING_ALPHA_MIN + ratio * (SMOOTHING_ALPHA_MAX - SMOOTHING_ALPHA_MIN);
+  }
+
+  // EMA pour chaque landmark avec l'alpha adaptatif
+  const oneMinusAlpha = 1 - alpha;
   for (let i = 0; i < currentLm.length; i++) {
-    smoothedLandmarks[i].x = SMOOTHING_ALPHA * currentLm[i].x + (1 - SMOOTHING_ALPHA) * smoothedLandmarks[i].x;
-    smoothedLandmarks[i].y = SMOOTHING_ALPHA * currentLm[i].y + (1 - SMOOTHING_ALPHA) * smoothedLandmarks[i].y;
-    smoothedLandmarks[i].z = SMOOTHING_ALPHA * currentLm[i].z + (1 - SMOOTHING_ALPHA) * smoothedLandmarks[i].z;
+    smoothedLandmarks[i].x = alpha * currentLm[i].x + oneMinusAlpha * smoothedLandmarks[i].x;
+    smoothedLandmarks[i].y = alpha * currentLm[i].y + oneMinusAlpha * smoothedLandmarks[i].y;
+    smoothedLandmarks[i].z = alpha * currentLm[i].z + oneMinusAlpha * smoothedLandmarks[i].z;
   }
 
   return smoothedLandmarks;
