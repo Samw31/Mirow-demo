@@ -3089,7 +3089,11 @@ async function initTasksTracker() {
       // Alpha : 0 = on est juste à la détection courante (pas d'extrapolation)
       //         1 = on extrapole 1 intervalle complet vers le futur
       // On limite à 1.2 pour éviter overshoot si la prochaine détection tarde
-      let alpha = Math.min(1.2, Math.max(0, sinceCurrent / expectedInterval));
+      // v3.11.10 - Option 1 : cap d'interpolation augmenté de 1.2 → 1.5
+      // Permet d'extrapoler jusqu'à 1.5 intervalle vers le futur, ce qui
+      // réduit le délai perçu en mouvement. Risque : overshoot léger sur
+      // mouvements rapides (acceptable si raisonnable).
+      let alpha = Math.min(1.5, Math.max(0, sinceCurrent / expectedInterval));
 
       // Construction des landmarks interpolés
       // Direction = current - prev (déplacement entre les 2 dernières détections)
