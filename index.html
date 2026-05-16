@@ -3019,18 +3019,116 @@ async function initTasksTracker() {
     // (équivalent du refineLandmarks de FaceMesh)
   });
 
+  // ============================================================
+  // ÉTAPE C - INTERPOLATION ENTRE FRAMES (anti-saccades)
+  // ------------------------------------------------------------
+  // MediaPipe détecte à ~30 FPS sur iPhone, l'écran rafraîchit à 60.
+  // Sans interpolation : entre 2 détections, on réutilise les mêmes
+  // landmarks → "saccades par paliers" même si la moyenne est fluide.
+  //
+  // Avec interpolation : à chaque RAF, on calcule où se situent les
+  // landmarks selon le temps écoulé depuis la dernière détection.
+  //
+  // Stockage : on garde 2 snapshots (previous + current) avec timestamp.
+  // ============================================================
+  let prevSnapshot = null;     // { landmarks: [{x,y,z}...], faceMatrix, blendshapes, time }
+  let currentSnapshot = null;  // idem
+  let interpFrame = 0;         // anti-spam de frames identiques
+
   // Boucle de détection synchronisée avec le rendu video
   function loop() {
     if (activeTracker !== 'tasks') return; // arrêt si on a switch en fallback
+
+    // 1. Si une NOUVELLE frame vidéo est dispo → détection MediaPipe
     if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
       lastVideoTime = video.currentTime;
       try {
         const results = mpFaceLandmarker.detectForVideo(video, performance.now());
-        onResultsTasks(results);
+        // On stocke la détection au lieu de rendre directement.
+        // Le rendu se fait à 60fps via interpolation (ci-dessous).
+        if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+          // Lissage One Euro Filter avant snapshot (préserve la stabilité)
+          const smoothed = smoothLandmarks(results.faceLandmarks[0]);
+          prevSnapshot = currentSnapshot;
+          currentSnapshot = {
+            landmarks: smoothed.map(p => ({ x: p.x, y: p.y, z: p.z })),
+            faceMatrix:  (results.facialTransformationMatrixes && results.facialTransformationMatrixes[0])
+                         ? results.facialTransformationMatrixes[0].data
+                         : null,
+            blendshapes: results.faceBlendshapes && results.faceBlendshapes[0]
+                         ? Object.fromEntries(results.faceBlendshapes[0].categories.map(c => [c.categoryName, c.score]))
+                         : null,
+            time: performance.now(),
+          };
+        } else {
+          // Pas de visage : on clear et reset
+          const W = video.videoWidth || 640;
+          const H = video.videoHeight || 480;
+          if (canvas.width !== W) canvas.width = W;
+          if (canvas.height !== H) canvas.height = H;
+          ctx.clearRect(0, 0, W, H);
+          if (webglCtx) webglCtx.clearRect(0, 0, W, H);
+          prevSnapshot = null;
+          currentSnapshot = null;
+        }
       } catch (err) {
         console.warn('[Mirow] Tasks detect error:', err);
       }
     }
+
+    // 2. RENDU INTERPOLÉ à 60 FPS
+    // À chaque RAF (pas seulement aux nouvelles détections),
+    // on interpole entre prevSnapshot et currentSnapshot selon
+    // le temps écoulé depuis la dernière détection.
+    if (currentSnapshot && prevSnapshot) {
+      // Durée moyenne estimée entre 2 détections (~33ms à 30 FPS)
+      // On extrapole un peu au-delà pour absorber les pics jusqu'à 50ms
+      const expectedInterval = Math.max(16, Math.min(50, currentSnapshot.time - prevSnapshot.time));
+      // Temps écoulé depuis currentSnapshot, normalisé entre 0 (juste détecté) et 1 (prochaine détection)
+      const sinceCurrent = performance.now() - currentSnapshot.time;
+      // Alpha : 0 = on est juste à la détection courante (pas d'extrapolation)
+      //         1 = on extrapole 1 intervalle complet vers le futur
+      // On limite à 1.2 pour éviter overshoot si la prochaine détection tarde
+      let alpha = Math.min(1.2, Math.max(0, sinceCurrent / expectedInterval));
+
+      // Construction des landmarks interpolés
+      // Direction = current - prev (déplacement entre les 2 dernières détections)
+      // Position interpolée = current + (current - prev) × alpha
+      //                     = current × (1+alpha) - prev × alpha
+      // Si alpha=0 → on affiche current (état actuel)
+      // Si alpha=1 → on extrapole 1 frame vers le futur
+      const interpLandmarks = currentSnapshot.landmarks.map((c, i) => {
+        const p = prevSnapshot.landmarks[i];
+        return {
+          x: c.x + (c.x - p.x) * alpha,
+          y: c.y + (c.y - p.y) * alpha,
+          z: c.z + (c.z - p.z) * alpha,
+        };
+      });
+
+      // Mise à jour des globales pour les modules de rendu
+      currentFaceMatrix  = currentSnapshot.faceMatrix;
+      currentBlendshapes = currentSnapshot.blendshapes;
+
+      // Rendu effectif
+      const W = video.videoWidth || 640;
+      const H = video.videoHeight || 480;
+      if (canvas.width !== W) canvas.width = W;
+      if (canvas.height !== H) canvas.height = H;
+      ctx.clearRect(0, 0, W, H);
+      applyMakeupAR(interpLandmarks, W, H);
+    } else if (currentSnapshot) {
+      // Premier frame : pas encore de previous, on rend juste current
+      currentFaceMatrix  = currentSnapshot.faceMatrix;
+      currentBlendshapes = currentSnapshot.blendshapes;
+      const W = video.videoWidth || 640;
+      const H = video.videoHeight || 480;
+      if (canvas.width !== W) canvas.width = W;
+      if (canvas.height !== H) canvas.height = H;
+      ctx.clearRect(0, 0, W, H);
+      applyMakeupAR(currentSnapshot.landmarks, W, H);
+    }
+
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
@@ -3217,50 +3315,13 @@ function smoothLandmarks(currentLm) {
   if (dt > 0.1)   dt = 0.1;
   oefLastTime = now;
 
-  // ============================================================
-  // ÉTAPE B - COMPENSATION PRÉDICTIVE (anti-latence pipeline)
-  // ------------------------------------------------------------
-  // Le pipeline iPhone (capture cam → MediaPipe → render → repaint)
-  // introduit ~100-150ms de latence : on voit le maquillage suivre
-  // le visage avec retard.
-  //
-  // Solution : à chaque frame, on calcule la VITESSE filtrée du
-  // landmark (déjà disponible dans oefState[i].x.prevD), et on
-  // extrapole où le landmark sera à l'instant t + PREDICTION_AHEAD.
-  //
-  // Trade-off :
-  //  - Plus on prédit, plus on rattrape la latence
-  //  - Mais trop de prédiction → overshoot (le maquillage "dépasse")
-  //
-  // Conservateur au démarrage : 50ms. À ajuster selon le test.
-  // ============================================================
-  const PREDICTION_AHEAD = 0.05; // 50ms
-
-  // Appliquer le filtre puis la prédiction sur chaque landmark
+  // Appliquer le filtre One Euro sur chaque landmark
+  // (rollback v3.11.8 : la compensation prédictive de l'étape B
+  // s'est révélée pire à l'usage — overshoot trop visible)
   for (let i = 0; i < currentLm.length; i++) {
-    // 1. Filtrage One Euro (lisse le passé)
-    const fx = _oefFilter(oefState[i].x, currentLm[i].x, dt);
-    const fy = _oefFilter(oefState[i].y, currentLm[i].y, dt);
-    const fz = _oefFilter(oefState[i].z, currentLm[i].z, dt);
-
-    // 2. Prédiction : on ajoute vitesse × temps de prédiction
-    // Les vitesses sont disponibles dans oefState[i].x.prevD (etc)
-    // car _oefFilter les calcule et stocke à chaque appel.
-    const vx = oefState[i].x.prevD || 0;
-    const vy = oefState[i].y.prevD || 0;
-    const vz = oefState[i].z.prevD || 0;
-
-    // 3. Application avec clamping pour éviter overshoot extrême
-    // (limite : pas plus de 0.02 unités normalisées d'extrapolation,
-    // soit environ 12 pixels sur un visage de 600px de large)
-    const maxDelta = 0.02;
-    const dxPred = Math.max(-maxDelta, Math.min(maxDelta, vx * PREDICTION_AHEAD));
-    const dyPred = Math.max(-maxDelta, Math.min(maxDelta, vy * PREDICTION_AHEAD));
-    const dzPred = Math.max(-maxDelta, Math.min(maxDelta, vz * PREDICTION_AHEAD));
-
-    smoothedLandmarks[i].x = fx + dxPred;
-    smoothedLandmarks[i].y = fy + dyPred;
-    smoothedLandmarks[i].z = fz + dzPred;
+    smoothedLandmarks[i].x = _oefFilter(oefState[i].x, currentLm[i].x, dt);
+    smoothedLandmarks[i].y = _oefFilter(oefState[i].y, currentLm[i].y, dt);
+    smoothedLandmarks[i].z = _oefFilter(oefState[i].z, currentLm[i].z, dt);
   }
 
   return smoothedLandmarks;
