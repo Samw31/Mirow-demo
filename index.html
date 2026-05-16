@@ -3127,30 +3127,101 @@ let smoothedLandmarks = null;
 let currentFaceMatrix  = null;  // Float32Array de 16 valeurs (transform 4×4)
 let currentBlendshapes = null;  // { eyeBlinkLeft: 0.05, mouthOpen: 0.2, ... }
 // ============================================================
-// SMOOTHING DES LANDMARKS
+// SMOOTHING DES LANDMARKS — One Euro Filter
 // ------------------------------------------------------------
-// v3.11.5 - Rollback de l'adaptatif (instable sur mobile).
-// On revient à un EMA simple, avec un alpha plus bas que le 0.5
-// initial pour mieux absorber les tremblements mobiles.
+// v3.11.6 - Étape A : One Euro Filter (Casiez et al, 2012)
 //
-// Alpha = 0.35 :
-//  - 35% nouveau, 65% ancien
-//  - Compromis stabilité/réactivité raisonnable
-//  - Anti-tremblement modéré sans introduire de latence forte
+// Référence : https://gery.casiez.net/1euro/
+//
+// Principe : à chaque échantillon, on calcule la VITESSE du
+// landmark, puis on adapte la fréquence de coupure du filtre
+// passe-bas selon cette vitesse :
+//   - Vitesse faible (tremblement) → lissage fort
+//   - Vitesse haute (vrai mouvement) → lissage faible
+//
+// La vitesse est elle-même filtrée pour éviter les oscillations
+// (c'est ce qui manquait à mon v3.11.4 et l'a fait planter).
+//
+// Paramètres par défaut (recommandés par les auteurs) :
+//   - minCutoff : 1.0 Hz (fréquence de coupure au repos)
+//   - beta      : 0.007 (sensibilité à la vitesse)
+//   - dcutoff   : 1.0 Hz (lissage de la vitesse)
 // ============================================================
-const SMOOTHING_ALPHA = 0.35;
+
+const OEF_MIN_CUTOFF = 1.0;
+const OEF_BETA       = 0.007;
+const OEF_DCUTOFF    = 1.0;
+
+// État du filtre : on stocke pour chaque landmark x/y/z la
+// valeur lissée précédente + la vitesse lissée précédente
+// + le timestamp de la dernière update
+let oefState = null;       // tableau de { x:{prev,prevD}, y:{...}, z:{...} } par landmark
+let oefLastTime = null;    // timestamp de la dernière frame (en secondes)
+
+/**
+ * Calcule alpha = 1 / (1 + tau/dt) où tau = 1 / (2π × cutoff)
+ * C'est la formule du filtre passe-bas de premier ordre.
+ */
+function _oefAlpha(cutoff, dt) {
+  const tau = 1.0 / (2.0 * Math.PI * cutoff);
+  return 1.0 / (1.0 + tau / dt);
+}
+
+/**
+ * Applique le filtre One Euro à une seule valeur scalaire.
+ * @param {Object} state - { prev, prevD } état du filtre pour cette dimension
+ * @param {number} x - nouvelle valeur brute
+ * @param {number} dt - delta temps en secondes
+ * @returns {number} valeur filtrée
+ */
+function _oefFilter(state, x, dt) {
+  // 1. Calcul de la dérivée (vitesse) brute
+  const dxRaw = state.prev === null ? 0 : (x - state.prev) / dt;
+  // 2. Lissage de la dérivée elle-même (pour éviter le bruit)
+  const aD = _oefAlpha(OEF_DCUTOFF, dt);
+  const dxSmoothed = state.prevD === null
+    ? dxRaw
+    : aD * dxRaw + (1 - aD) * state.prevD;
+  // 3. Adaptation de la fréquence de coupure selon |vitesse|
+  const cutoff = OEF_MIN_CUTOFF + OEF_BETA * Math.abs(dxSmoothed);
+  // 4. Filtrage de la valeur avec cutoff adapté
+  const a = _oefAlpha(cutoff, dt);
+  const xFiltered = state.prev === null
+    ? x
+    : a * x + (1 - a) * state.prev;
+  // 5. Sauvegarder l'état pour la prochaine frame
+  state.prev = xFiltered;
+  state.prevD = dxSmoothed;
+  return xFiltered;
+}
 
 function smoothLandmarks(currentLm) {
-  if (!smoothedLandmarks) {
+  const now = performance.now() / 1000; // secondes
+
+  // Premier frame : initialisation
+  if (!smoothedLandmarks || !oefState) {
     smoothedLandmarks = currentLm.map(p => ({ x: p.x, y: p.y, z: p.z }));
+    oefState = currentLm.map(() => ({
+      x: { prev: null, prevD: null },
+      y: { prev: null, prevD: null },
+      z: { prev: null, prevD: null },
+    }));
+    oefLastTime = now;
     return smoothedLandmarks;
   }
 
-  const oneMinusAlpha = 1 - SMOOTHING_ALPHA;
+  // Calcul du delta temps depuis la dernière frame
+  // Clamp entre 1ms (évite division par zéro) et 100ms (frame skip)
+  let dt = now - oefLastTime;
+  if (dt < 0.001) dt = 0.001;
+  if (dt > 0.1)   dt = 0.1;
+  oefLastTime = now;
+
+  // Appliquer le filtre sur chaque landmark
   for (let i = 0; i < currentLm.length; i++) {
-    smoothedLandmarks[i].x = SMOOTHING_ALPHA * currentLm[i].x + oneMinusAlpha * smoothedLandmarks[i].x;
-    smoothedLandmarks[i].y = SMOOTHING_ALPHA * currentLm[i].y + oneMinusAlpha * smoothedLandmarks[i].y;
-    smoothedLandmarks[i].z = SMOOTHING_ALPHA * currentLm[i].z + oneMinusAlpha * smoothedLandmarks[i].z;
+    smoothedLandmarks[i].x = _oefFilter(oefState[i].x, currentLm[i].x, dt);
+    smoothedLandmarks[i].y = _oefFilter(oefState[i].y, currentLm[i].y, dt);
+    smoothedLandmarks[i].z = _oefFilter(oefState[i].z, currentLm[i].z, dt);
   }
 
   return smoothedLandmarks;
