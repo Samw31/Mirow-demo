@@ -3217,11 +3217,50 @@ function smoothLandmarks(currentLm) {
   if (dt > 0.1)   dt = 0.1;
   oefLastTime = now;
 
-  // Appliquer le filtre sur chaque landmark
+  // ============================================================
+  // ÉTAPE B - COMPENSATION PRÉDICTIVE (anti-latence pipeline)
+  // ------------------------------------------------------------
+  // Le pipeline iPhone (capture cam → MediaPipe → render → repaint)
+  // introduit ~100-150ms de latence : on voit le maquillage suivre
+  // le visage avec retard.
+  //
+  // Solution : à chaque frame, on calcule la VITESSE filtrée du
+  // landmark (déjà disponible dans oefState[i].x.prevD), et on
+  // extrapole où le landmark sera à l'instant t + PREDICTION_AHEAD.
+  //
+  // Trade-off :
+  //  - Plus on prédit, plus on rattrape la latence
+  //  - Mais trop de prédiction → overshoot (le maquillage "dépasse")
+  //
+  // Conservateur au démarrage : 50ms. À ajuster selon le test.
+  // ============================================================
+  const PREDICTION_AHEAD = 0.05; // 50ms
+
+  // Appliquer le filtre puis la prédiction sur chaque landmark
   for (let i = 0; i < currentLm.length; i++) {
-    smoothedLandmarks[i].x = _oefFilter(oefState[i].x, currentLm[i].x, dt);
-    smoothedLandmarks[i].y = _oefFilter(oefState[i].y, currentLm[i].y, dt);
-    smoothedLandmarks[i].z = _oefFilter(oefState[i].z, currentLm[i].z, dt);
+    // 1. Filtrage One Euro (lisse le passé)
+    const fx = _oefFilter(oefState[i].x, currentLm[i].x, dt);
+    const fy = _oefFilter(oefState[i].y, currentLm[i].y, dt);
+    const fz = _oefFilter(oefState[i].z, currentLm[i].z, dt);
+
+    // 2. Prédiction : on ajoute vitesse × temps de prédiction
+    // Les vitesses sont disponibles dans oefState[i].x.prevD (etc)
+    // car _oefFilter les calcule et stocke à chaque appel.
+    const vx = oefState[i].x.prevD || 0;
+    const vy = oefState[i].y.prevD || 0;
+    const vz = oefState[i].z.prevD || 0;
+
+    // 3. Application avec clamping pour éviter overshoot extrême
+    // (limite : pas plus de 0.02 unités normalisées d'extrapolation,
+    // soit environ 12 pixels sur un visage de 600px de large)
+    const maxDelta = 0.02;
+    const dxPred = Math.max(-maxDelta, Math.min(maxDelta, vx * PREDICTION_AHEAD));
+    const dyPred = Math.max(-maxDelta, Math.min(maxDelta, vy * PREDICTION_AHEAD));
+    const dzPred = Math.max(-maxDelta, Math.min(maxDelta, vz * PREDICTION_AHEAD));
+
+    smoothedLandmarks[i].x = fx + dxPred;
+    smoothedLandmarks[i].y = fy + dyPred;
+    smoothedLandmarks[i].z = fz + dzPred;
   }
 
   return smoothedLandmarks;
