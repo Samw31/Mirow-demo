@@ -2589,6 +2589,100 @@ let makeup = {
 const video       = document.getElementById('video');
 const canvas      = document.getElementById('outputCanvas');
 const ctx         = canvas.getContext('2d');
+
+// ============================================================
+// WORKER POUR RENDU OFFSCREEN (Migration Niveau 1 - Étape D1/4)
+// ------------------------------------------------------------
+// Architecture : un Web Worker tourne en parallèle du main thread.
+// Il reçoit les landmarks (postMessage) et dessine sur un OffscreenCanvas.
+// L'ImageBitmap résultant est renvoyé au main thread qui l'affiche.
+//
+// ÉTAPE D1 — Setup uniquement. Pas encore de migration du rendu.
+// Cette étape valide que :
+//   1. Le worker se charge et tourne
+//   2. La communication main thread ↔ worker fonctionne
+//   3. OffscreenCanvas est supporté
+//
+// Si KO sur iPhone iOS 17+ → le rendu reste sur main thread (graceful).
+// ============================================================
+
+// Détection de capacité OffscreenCanvas + Worker
+const SUPPORTS_OFFSCREEN = (
+  typeof OffscreenCanvas !== 'undefined' &&
+  typeof Worker !== 'undefined' &&
+  'transferControlToOffscreen' in HTMLCanvasElement.prototype
+);
+
+let mirowWorker = null;          // instance Worker
+let workerReady = false;         // true quand le worker a confirmé sa disponibilité
+let useWorkerRendering = false;  // master switch : false = main thread (fallback), true = worker
+
+// Code source du Worker (Blob inline pour rester dans index.html)
+// À l'étape D1 : juste un echo "ready"
+const WORKER_SOURCE = `
+// ============================================================
+// MIROW RENDER WORKER
+// ============================================================
+// Étape D1 : minimal setup, juste un handshake "ready"
+// Les étapes D2-D4 ajouteront progressivement le rendu Canvas 2D.
+// ============================================================
+
+self.onmessage = function(e) {
+  const msg = e.data;
+  if (msg.type === 'init') {
+    // Confirmer la disponibilité
+    self.postMessage({ type: 'ready' });
+  }
+  // Les autres types de messages (renderFrame, etc.) seront ajoutés
+  // aux étapes suivantes.
+};
+`;
+
+/**
+ * Initialise le Worker de rendu.
+ * Appelée une seule fois au démarrage.
+ * Si KO → useWorkerRendering reste false, on continue sur main thread.
+ */
+function initRenderWorker() {
+  if (!SUPPORTS_OFFSCREEN) {
+    console.log('[Mirow] OffscreenCanvas non supporté → rendu main thread (fallback)');
+    return;
+  }
+
+  try {
+    const blob = new Blob([WORKER_SOURCE], { type: 'application/javascript' });
+    const workerURL = URL.createObjectURL(blob);
+    mirowWorker = new Worker(workerURL);
+
+    // Réception des messages du worker
+    mirowWorker.onmessage = function(e) {
+      const msg = e.data;
+      if (msg.type === 'ready') {
+        workerReady = true;
+        useWorkerRendering = false; // ÉTAPE D1 : on garde le main thread actif. On activera worker à D2.
+        console.log('[Mirow] Worker ready (étape D1 - setup OK)');
+      }
+    };
+
+    mirowWorker.onerror = function(err) {
+      console.warn('[Mirow] Worker error → fallback main thread:', err);
+      workerReady = false;
+      useWorkerRendering = false;
+      mirowWorker = null;
+    };
+
+    // Handshake : on envoie 'init', le worker répond 'ready'
+    mirowWorker.postMessage({ type: 'init' });
+  } catch (err) {
+    console.warn('[Mirow] Worker init failed → fallback main thread:', err);
+    workerReady = false;
+    useWorkerRendering = false;
+  }
+}
+
+// Lancement du worker dès le chargement (avant même que la caméra ne démarre)
+initRenderWorker();
+
 const camOverlay  = document.getElementById('camOverlay');
 const camError    = document.getElementById('camError');
 const errorTitle  = document.getElementById('errorTitle');
@@ -3089,11 +3183,9 @@ async function initTasksTracker() {
       // Alpha : 0 = on est juste à la détection courante (pas d'extrapolation)
       //         1 = on extrapole 1 intervalle complet vers le futur
       // On limite à 1.2 pour éviter overshoot si la prochaine détection tarde
-      // v3.11.10 - Option 1 : cap d'interpolation augmenté de 1.2 → 1.5
-      // Permet d'extrapoler jusqu'à 1.5 intervalle vers le futur, ce qui
-      // réduit le délai perçu en mouvement. Risque : overshoot léger sur
-      // mouvements rapides (acceptable si raisonnable).
-      let alpha = Math.min(1.5, Math.max(0, sinceCurrent / expectedInterval));
+      // v3.11.11 - rollback alpha cap 1.5 \u2192 1.2 (Samuel a constat\u00e9 que 1.5 \u00e9tait pire)
+      // On garde l'interpolation v3.11.9 qui marchait bien
+      let alpha = Math.min(1.2, Math.max(0, sinceCurrent / expectedInterval));
 
       // Construction des landmarks interpolés
       // Direction = current - prev (déplacement entre les 2 dernières détections)
