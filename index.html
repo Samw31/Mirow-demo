@@ -851,6 +851,44 @@ body {
   overflow: hidden; /* le scroll se fait sur le wrapper interne */
 }
 
+/* Handle de toggle panel — masqué sur desktop, visible mobile */
+.panel-handle {
+  display: none; /* caché sur desktop */
+  width: 100%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 10px 0 8px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  position: relative;
+  z-index: 6; /* au-dessus de la cat-row sticky */
+}
+.panel-handle-bar {
+  display: block;
+  width: 44px;
+  height: 4px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.25);
+  transition: background 0.2s, width 0.2s;
+}
+.panel-handle:hover .panel-handle-bar,
+.panel-handle:active .panel-handle-bar {
+  background: var(--electric-purple);
+  width: 56px;
+}
+.panel-handle-hint {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
 /* Zone scrollable interne — contient toutes les sections sauf le footer */
 .panel-scroll {
   flex: 1;
@@ -1255,6 +1293,25 @@ input[type=range]::-moz-range-thumb {
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     z-index: 20;
+    /* Animation fluide entre les states open/closed */
+    transition: height 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  /* État replié : panel à hauteur minimale (juste le handle visible) */
+  .panel.collapsed {
+    height: 48px;
+    height: calc(48px + env(safe-area-inset-bottom, 0));
+  }
+  .panel.collapsed .panel-scroll {
+    /* En collapsed, on cache le contenu (laisse juste le handle) */
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+  }
+
+  /* Handle de toggle visible sur mobile */
+  .panel-handle {
+    display: flex;
   }
 
   /* Safe area iOS (notch, home indicator) */
@@ -1675,6 +1732,12 @@ input[type=range]::-moz-range-thumb {
 
     <!-- Panel de contrôles -->
     <div class="panel">
+
+      <!-- Handle de toggle (mobile uniquement) — bouton pour ouvrir/fermer le panel -->
+      <button class="panel-handle" id="panelHandle" aria-label="Afficher/masquer le panel" type="button">
+        <span class="panel-handle-bar"></span>
+        <span class="panel-handle-hint" id="panelHandleHint">Masquer</span>
+      </button>
 
       <!-- Zone scrollable contenant toutes les sections -->
       <div class="panel-scroll">
@@ -6111,6 +6174,30 @@ compareBeforeBtn.addEventListener('touchend',    endBeforeCompare);
 compareBeforeBtn.addEventListener('touchcancel', endBeforeCompare);
 // Sécurité : si le bouton perd le focus en plein milieu, on désactive
 compareBeforeBtn.addEventListener('blur', endBeforeCompare);
+
+// ============================================================
+// PANEL HANDLE — Toggle open/collapsed (mobile uniquement)
+// ============================================================
+// Permet de masquer le panel pour voir le visage en plein écran,
+// puis le faire réapparaître d'un tap.
+// ============================================================
+const panelHandle = document.getElementById('panelHandle');
+const panelHandleHint = document.getElementById('panelHandleHint');
+const panelEl = document.querySelector('.panel');
+
+function togglePanel() {
+  const isCollapsed = panelEl.classList.toggle('collapsed');
+  // Mettre à jour le label du hint
+  if (panelHandleHint) {
+    panelHandleHint.textContent = isCollapsed ? 'Afficher' : 'Masquer';
+  }
+  // Analytics
+  if (typeof mirowTrack === 'function') {
+    mirowTrack('panel_toggled', { state: isCollapsed ? 'collapsed' : 'open' });
+  }
+}
+
+panelHandle.addEventListener('click', togglePanel);
 
 // ============================================================
 // CAPTURE PHOTO + PARTAGE
