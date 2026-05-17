@@ -851,44 +851,6 @@ body {
   overflow: hidden; /* le scroll se fait sur le wrapper interne */
 }
 
-/* Handle de toggle panel — masqué sur desktop, visible mobile */
-.panel-handle {
-  display: none; /* caché sur desktop */
-  width: 100%;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 10px 0 8px;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  -webkit-tap-highlight-color: transparent;
-  -webkit-user-select: none;
-  user-select: none;
-  position: relative;
-  z-index: 6; /* au-dessus de la cat-row sticky */
-}
-.panel-handle-bar {
-  display: block;
-  width: 44px;
-  height: 4px;
-  border-radius: 99px;
-  background: rgba(255, 255, 255, 0.25);
-  transition: background 0.2s, width 0.2s;
-}
-.panel-handle:hover .panel-handle-bar,
-.panel-handle:active .panel-handle-bar {
-  background: var(--electric-purple);
-  width: 56px;
-}
-.panel-handle-hint {
-  font-size: 9px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-  font-weight: 500;
-}
-
 /* Zone scrollable interne — contient toutes les sections sauf le footer */
 .panel-scroll {
   flex: 1;
@@ -1232,173 +1194,18 @@ input[type=range]::-moz-range-thumb {
 }
 
 /* Responsive : tablette + mobile */
-/* ============================================================
-   RESPONSIVE LAYOUT
-   ============================================================ */
-
-/* Desktop (> 1024px) : layout horizontal classique cam + panel à droite */
-
-/* Tablette + Mobile (< 1024px) : caméra plein écran + panel overlay */
-@media (max-width: 1023px) {
-  /* L'app passe en position relative + occupe tout le viewport */
-  .app {
-    height: 100vh;
-    height: 100dvh; /* dynamic viewport height pour iOS Safari */
-    overflow: hidden;
-  }
-
-  /* La topbar reste en haut mais en absolu pour ne pas voler de la hauteur */
-  .topbar {
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    z-index: 50;
-    background: rgba(9, 9, 15, 0.65);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-bottom: 0.5px solid rgba(255, 255, 255, 0.08);
-  }
-
-  /* Le main prend tout l'espace, sans flex horizontal */
-  .main {
-    flex-direction: column;
-    height: 100%;
-    height: 100dvh;
-    gap: 0;
-    position: relative;
-  }
-
-  /* La cam-area prend 100% du viewport (par-dessous le panel overlay) */
-  .cam-area {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    min-height: 0;
-  }
-
-  /* Le panel devient un overlay en bas, par-dessus la caméra */
+@media (max-width: 900px) {
+  .panel { width: 280px; }
+}
+@media (max-width: 640px) {
+  .main { flex-direction: column; }
   .panel {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
     width: 100%;
-    /* Hauteur en mode collapsed : on garde le visage visible au-dessus */
-    height: 45vh;
-    height: 45dvh;
     max-height: none;
     border-left: none;
     border-top: 0.5px solid var(--border);
-    background: rgba(9, 9, 15, 0.92);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    z-index: 20;
-    /* Animation fluide entre les states open/closed */
-    transition: height 0.32s cubic-bezier(0.32, 0.72, 0, 1);
   }
-
-  /* État replié : panel à hauteur minimale (juste le handle visible) */
-  .panel.collapsed {
-    height: 48px;
-    height: calc(48px + env(safe-area-inset-bottom, 0));
-  }
-  .panel.collapsed .panel-scroll {
-    /* En collapsed, on cache le contenu (laisse juste le handle) */
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.15s;
-  }
-
-  /* Handle de toggle visible sur mobile */
-  .panel-handle {
-    display: flex;
-  }
-
-  /* Safe area iOS (notch, home indicator) */
-  .panel {
-    padding-bottom: env(safe-area-inset-bottom, 0);
-  }
-
-  /* Sur mobile, on cadre la vidéo plus haut pour que le visage soit
-     visible au-dessus du panel (sinon il est centré et caché par le panel).
-     object-position 50% 45% = centré horizontalement, 45% depuis le haut
-     (cadrage milieu-haut pour voir le visage entier sans trop zoomer
-     sur le front). Ajusté de 30% → 45% selon retour Samuel v3.13.5. */
-  #video, #outputCanvas, #webglCanvas, #photoView {
-    object-position: 50% 45%;
-  }
-
-  /* CORRECTION E1.1 : cam-overlay (écran d'accueil avant activation cam)
-     doit être PAR-DESSUS le panel pour que le bouton "Activer la caméra"
-     soit cliquable. Sinon le panel le masque. */
-  .cam-overlay {
-    z-index: 30;
-  }
-
-  /* CORRECTION E1.1 bis : tant que la caméra n'est pas démarrée
-     (classe .cam-not-started sur .app), on masque le panel. */
-  .app.cam-not-started .panel {
-    display: none;
-  }
-
-  /* CORRECTION E1.2 : épingler la section "Catégorie" en haut du panel
-     pour qu'elle reste toujours visible même quand on scroll le panel.
-     Sinon, sur mobile, l'utilisateur perd la navigation principale. */
-  .panel-scroll {
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch; /* scroll fluide iOS */
-  }
-  /* Première section (Catégorie) reste sticky en haut */
-  .panel-scroll > .panel-section:first-child {
-    position: sticky;
-    top: 0;
-    background: rgba(9, 9, 15, 0.95);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    z-index: 5;
-    padding: 14px 20px 12px; /* un peu plus compact qu'en desktop */
-  }
-
-  /* Réduction du padding des sections sur mobile pour gagner de la place */
-  .panel-section {
-    padding: 14px 20px;
-  }
-
-  /* CORRECTION E2.1 : bouton capture flottant au-dessus du panel
-     ----------------------------------------------------------
-     Sur mobile, le bouton capture (rond avec gradient) doit toujours
-     être visible, qu'on soit panel ouvert ou collapsed.
-     On le déplace donc en `position: fixed` (par rapport au viewport)
-     et on le positionne juste au-dessus du panel.
-     
-     - Panel ouvert (45vh) → bouton à bottom: calc(45vh + 16px)
-     - Panel collapsed (48px) → bouton à bottom: calc(48px + 16px)
-     
-     La hauteur du panel est exposée via la variable CSS --panel-height
-     (mise à jour par CSS selon le state .collapsed). */
-  .capture-btn {
-    position: fixed;
-    bottom: calc(45vh + 16px); /* au-dessus du panel ouvert */
-    bottom: calc(45dvh + 16px);
-    z-index: 25; /* > panel (20), < cam-overlay (30) */
-    transition: bottom 0.32s cubic-bezier(0.32, 0.72, 0, 1);
-    /* Taille un peu plus petite sur mobile pour économiser la place */
-    width: 60px;
-    height: 60px;
-  }
-  .capture-btn-inner {
-    width: 46px;
-    height: 46px;
-  }
-
-  /* Quand le panel est collapsed, le bouton descend juste au-dessus du handle */
-  .app:has(.panel.collapsed) .capture-btn {
-    bottom: calc(48px + env(safe-area-inset-bottom, 0) + 16px);
-  }
-}
-
-/* Mobile spécifique (< 640px) : ajustements supplémentaires */
-@media (max-width: 640px) {
+  .cam-area { min-height: 320px; height: 50vh; }
   .swatch-grid { grid-template-columns: repeat(8, 1fr); }
 }
 
@@ -1651,7 +1458,7 @@ input[type=range]::-moz-range-thumb {
 </head>
 
 <body>
-<div class="app cam-not-started">
+<div class="app">
 
   <!-- TOPBAR -->
   <div class="topbar">
@@ -1765,12 +1572,6 @@ input[type=range]::-moz-range-thumb {
 
     <!-- Panel de contrôles -->
     <div class="panel">
-
-      <!-- Handle de toggle (mobile uniquement) — bouton pour ouvrir/fermer le panel -->
-      <button class="panel-handle" id="panelHandle" aria-label="Afficher/masquer le panel" type="button">
-        <span class="panel-handle-bar"></span>
-        <span class="panel-handle-hint" id="panelHandleHint">Masquer</span>
-      </button>
 
       <!-- Zone scrollable contenant toutes les sections -->
       <div class="panel-scroll">
@@ -3594,7 +3395,6 @@ async function startCamera() {
     video.srcObject = stream;
     await video.play();
     camOverlay.classList.add('hidden');
-    document.querySelector('.app').classList.remove('cam-not-started'); // E1 mobile : faire apparaître le panel
     statusDot.classList.add('on');
     statusText.textContent = 'Détection active';
     initTracker(); // Tasks Vision si dispo, sinon FaceMesh fallback
@@ -5993,7 +5793,6 @@ function enterPhotoMode(img, landmarks) {
 
   // Cacher l'overlay d'accueil
   camOverlay.classList.add('hidden');
-  document.querySelector('.app').classList.remove('cam-not-started'); // E1 mobile : faire apparaître le panel
   hidePhotoError();
 
   // Cacher la vidéo (si elle était active)
@@ -6207,30 +6006,6 @@ compareBeforeBtn.addEventListener('touchend',    endBeforeCompare);
 compareBeforeBtn.addEventListener('touchcancel', endBeforeCompare);
 // Sécurité : si le bouton perd le focus en plein milieu, on désactive
 compareBeforeBtn.addEventListener('blur', endBeforeCompare);
-
-// ============================================================
-// PANEL HANDLE — Toggle open/collapsed (mobile uniquement)
-// ============================================================
-// Permet de masquer le panel pour voir le visage en plein écran,
-// puis le faire réapparaître d'un tap.
-// ============================================================
-const panelHandle = document.getElementById('panelHandle');
-const panelHandleHint = document.getElementById('panelHandleHint');
-const panelEl = document.querySelector('.panel');
-
-function togglePanel() {
-  const isCollapsed = panelEl.classList.toggle('collapsed');
-  // Mettre à jour le label du hint
-  if (panelHandleHint) {
-    panelHandleHint.textContent = isCollapsed ? 'Afficher' : 'Masquer';
-  }
-  // Analytics
-  if (typeof mirowTrack === 'function') {
-    mirowTrack('panel_toggled', { state: isCollapsed ? 'collapsed' : 'open' });
-  }
-}
-
-panelHandle.addEventListener('click', togglePanel);
 
 // ============================================================
 // CAPTURE PHOTO + PARTAGE
