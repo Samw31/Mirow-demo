@@ -2616,25 +2616,132 @@ const SUPPORTS_OFFSCREEN = (
 let mirowWorker = null;          // instance Worker
 let workerReady = false;         // true quand le worker a confirmé sa disponibilité
 let useWorkerRendering = false;  // master switch : false = main thread (fallback), true = worker
+let workerBitmap = null;         // dernier ImageBitmap reçu du worker, à composer
+let workerBusy = false;          // true quand une frame est en cours dans le worker (skip si vrai)
+let workerFrameId = 0;           // compteur de frames envoyées au worker
 
 // Code source du Worker (Blob inline pour rester dans index.html)
-// À l'étape D1 : juste un echo "ready"
+// ÉTAPE D2a : applyHighlight migré dans le worker
 const WORKER_SOURCE = `
 // ============================================================
 // MIROW RENDER WORKER
 // ============================================================
-// Étape D1 : minimal setup, juste un handshake "ready"
-// Les étapes D2-D4 ajouteront progressivement le rendu Canvas 2D.
+// État D2a : applyHighlight tourne ici.
+// Le worker reçoit { landmarks, makeupHighlight, detectedTone, W, H }
+// et renvoie un ImageBitmap transférable.
 // ============================================================
 
+let offscreen = null;  // OffscreenCanvas (sera créé au premier renderFrame)
+let octx = null;       // contexte 2d
+
+// --- HELPERS (copiés du main thread) ---
+function hexToRgb(hex) {
+  if (!hex || hex.startsWith('rgba')) return { r:200, g:100, b:100 };
+  hex = hex.replace('#', '');
+  return {
+    r: parseInt(hex.slice(0, 2), 16),
+    g: parseInt(hex.slice(2, 4), 16),
+    b: parseInt(hex.slice(4, 6), 16),
+  };
+}
+function pt(lm, i, W, H) {
+  return { x: lm[i].x * W, y: lm[i].y * H };
+}
+function getToneAdjustments(category, detectedTone) {
+  if (!detectedTone) return { opMultiplier: 1.0, satBoost: 1.0 };
+  const adjustments = {
+    highlight: {
+      'very-light': { opMultiplier: 1.0,  satBoost: 1.0 },
+      'light':      { opMultiplier: 1.0,  satBoost: 1.0 },
+      'medium':     { opMultiplier: 1.15, satBoost: 1.0 },
+      'deep':       { opMultiplier: 1.30, satBoost: 1.0 },
+    },
+  };
+  return adjustments[category]?.[detectedTone] || { opMultiplier: 1.0, satBoost: 1.0 };
+}
+
+// --- RENDU HIGHLIGHT (copié de applyHighlight main thread) ---
+function renderHighlight(ctx, lm, W, H, makeupHighlight, detectedTone) {
+  const m = makeupHighlight;
+  if (!m || !m.c || m.op < 0.05) return;
+  const rgb = hexToRgb(m.c);
+  const toneAdj = getToneAdjustments('highlight', detectedTone);
+  const opMul = toneAdj.opMultiplier;
+
+  const GLOBAL_INTENSITY = 0.45;
+
+  const faceL = pt(lm, 234, W, H);
+  const faceR = pt(lm, 454, W, H);
+  const faceWidth = Math.abs(faceR.x - faceL.x);
+  const scale = faceWidth / 280;
+
+  const halos = [
+    { center: pt(lm, 116, W, H), rx: 32 * scale, ry: 20 * scale, rotate: -0.15, intensity: 1.0  },
+    { center: pt(lm, 345, W, H), rx: 32 * scale, ry: 20 * scale, rotate:  0.15, intensity: 1.0  },
+    { center: pt(lm, 6,   W, H), rx:  7 * scale, ry: 28 * scale, rotate:  0,    intensity: 0.55 },
+  ];
+
+  halos.forEach(({ center, rx, ry, rotate, intensity }) => {
+    const finalAlpha = m.op * GLOBAL_INTENSITY * intensity * opMul;
+    const grad = ctx.createRadialGradient(
+      center.x, center.y, 0,
+      center.x, center.y, Math.max(rx, ry)
+    );
+    grad.addColorStop(0,   'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',' + (finalAlpha * 0.55) + ')');
+    grad.addColorStop(0.4, 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',' + (finalAlpha * 0.25) + ')');
+    grad.addColorStop(0.8, 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',' + (finalAlpha * 0.05) + ')');
+    grad.addColorStop(1,   'rgba(0,0,0,0)');
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.filter = 'blur(6px)';
+    if (rotate !== 0) {
+      ctx.translate(center.x, center.y);
+      ctx.rotate(rotate);
+      ctx.translate(-center.x, -center.y);
+    }
+    ctx.beginPath();
+    ctx.ellipse(center.x, center.y, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.filter = 'none';
+    ctx.restore();
+  });
+}
+
+// --- MESSAGE HANDLER ---
 self.onmessage = function(e) {
   const msg = e.data;
+
   if (msg.type === 'init') {
-    // Confirmer la disponibilité
     self.postMessage({ type: 'ready' });
+    return;
   }
-  // Les autres types de messages (renderFrame, etc.) seront ajoutés
-  // aux étapes suivantes.
+
+  if (msg.type === 'renderFrame') {
+    const { landmarks, makeupHighlight, detectedTone, W, H, frameId } = msg;
+
+    // Initialiser ou redimensionner OffscreenCanvas si nécessaire
+    if (!offscreen) {
+      offscreen = new OffscreenCanvas(W, H);
+      octx = offscreen.getContext('2d');
+    } else if (offscreen.width !== W || offscreen.height !== H) {
+      offscreen.width = W;
+      offscreen.height = H;
+    }
+
+    // Clear canvas
+    octx.clearRect(0, 0, W, H);
+
+    // Rendu highlight uniquement (à D2a)
+    if (landmarks) {
+      renderHighlight(octx, landmarks, W, H, makeupHighlight, detectedTone);
+    }
+
+    // Conversion en ImageBitmap transférable (zéro-copy)
+    const bitmap = offscreen.transferToImageBitmap();
+    self.postMessage({ type: 'frameRendered', bitmap: bitmap, frameId: frameId }, [bitmap]);
+  }
 };
 `;
 
@@ -2659,8 +2766,18 @@ function initRenderWorker() {
       const msg = e.data;
       if (msg.type === 'ready') {
         workerReady = true;
-        useWorkerRendering = false; // ÉTAPE D1 : on garde le main thread actif. On activera worker à D2.
-        console.log('[Mirow] Worker ready (étape D1 - setup OK)');
+        useWorkerRendering = true; // ÉTAPE D2a : on active le rendu via worker (highlight uniquement)
+        console.log('[Mirow] Worker ready (étape D2a - highlight via worker)');
+      }
+      if (msg.type === 'frameRendered') {
+        // Bitmap reçu du worker → on le stocke pour composition au prochain frame
+        // Le bitmap est transférable, on n'en garde qu'un à la fois
+        if (workerBitmap) {
+          // Précédent bitmap pas encore composé → on le libère
+          if (workerBitmap.close) workerBitmap.close();
+        }
+        workerBitmap = msg.bitmap;
+        workerBusy = false;
       }
     };
 
@@ -3466,10 +3583,43 @@ function applyMakeupAR(lm, W, H) {
 
   // Mode normal : 1 seul rendu
   applyBlush(lm, W, H);
-  applyHighlight(lm, W, H);
+  applyHighlight(lm, W, H);  // skip si worker actif (à l'intérieur)
   applyEyes(lm, W, H);
   applyBrows(lm, W, H);
   applyLips(lm, W, H);
+
+  // ============================================================
+  // ÉTAPE D2a — ENVOI AU WORKER + COMPOSITION
+  // ============================================================
+  // Si worker actif :
+  //   1. On envoie les landmarks au worker (s'il n'est pas busy)
+  //   2. On compose le dernier bitmap reçu sur ctx
+  // Note : le bitmap reçu correspond à une frame légèrement antérieure
+  // (1-2 frames de retard), c'est acceptable pour le highlight qui est
+  // un effet doux et lent.
+  // ============================================================
+  if (useWorkerRendering && workerReady && mirowWorker) {
+    // 1. Envoi de la frame courante (si worker pas busy)
+    if (!workerBusy && makeup.highlight && makeup.highlight.c && makeup.highlight.op >= 0.05) {
+      workerBusy = true;
+      workerFrameId++;
+      // Les landmarks sont déjà au format normalisé (0..1) en sortie de MediaPipe
+      // → on les envoie tels quels au worker qui multiplie par W/H dans pt()
+      mirowWorker.postMessage({
+        type: 'renderFrame',
+        landmarks: lm.map(p => ({ x: p.x, y: p.y, z: p.z })),
+        makeupHighlight: makeup.highlight,
+        detectedTone: detectedTone,
+        W: W,
+        H: H,
+        frameId: workerFrameId,
+      });
+    }
+    // 2. Composition du dernier bitmap reçu
+    if (workerBitmap) {
+      ctx.drawImage(workerBitmap, 0, 0);
+    }
+  }
 
   // POLISH NIVEAU 2 — reflets dynamiques sur Lèvres + Éclat
   // (couche séparée, canvas WebGL overlay)
@@ -5106,6 +5256,10 @@ function applyBrows(lm, W, H) {
  *  sur les 3 zones les plus en relief.
  */
 function applyHighlight(lm, W, H) {
+  // ÉTAPE D2a : si le worker prend en charge le highlight, on skip ici
+  // (le rendu est composé à la fin de applyMakeupAR via le bitmap worker)
+  if (useWorkerRendering && workerReady) return;
+
   const m = makeup.highlight;
   if (!m || !m.c || m.op < 0.05) return;
   const rgb = hexToRgb(m.c);
