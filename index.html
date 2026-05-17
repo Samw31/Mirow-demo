@@ -1362,6 +1362,38 @@ input[type=range]::-moz-range-thumb {
   .panel-section {
     padding: 14px 20px;
   }
+
+  /* CORRECTION E2.1 : bouton capture flottant au-dessus du panel
+     ----------------------------------------------------------
+     Sur mobile, le bouton capture (rond avec gradient) doit toujours
+     être visible, qu'on soit panel ouvert ou collapsed.
+     On le déplace donc en `position: fixed` (par rapport au viewport)
+     et on le positionne juste au-dessus du panel.
+     
+     - Panel ouvert (45vh) → bouton à bottom: calc(45vh + 16px)
+     - Panel collapsed (48px) → bouton à bottom: calc(48px + 16px)
+     
+     La hauteur du panel est exposée via la variable CSS --panel-height
+     (mise à jour par CSS selon le state .collapsed). */
+  .capture-btn {
+    position: fixed;
+    bottom: calc(45vh + 16px); /* au-dessus du panel ouvert */
+    bottom: calc(45dvh + 16px);
+    z-index: 25; /* > panel (20), < cam-overlay (30) */
+    transition: bottom 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+    /* Taille un peu plus petite sur mobile pour économiser la place */
+    width: 60px;
+    height: 60px;
+  }
+  .capture-btn-inner {
+    width: 46px;
+    height: 46px;
+  }
+
+  /* Quand le panel est collapsed, le bouton descend juste au-dessus du handle */
+  .app:has(.panel.collapsed) .capture-btn {
+    bottom: calc(48px + env(safe-area-inset-bottom, 0) + 16px);
+  }
 }
 
 /* Mobile spécifique (< 640px) : ajustements supplémentaires */
