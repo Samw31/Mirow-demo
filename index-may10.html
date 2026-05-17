@@ -1,0 +1,2334 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="description" content="Mirow — Try it. Own it. Wear it. Essayage maquillage AR pour marques cosmétiques indépendantes.">
+<meta name="theme-color" content="#09090F">
+<title>Mirow — Try it. Own it. Wear it.</title>
+
+<!--
+  ============================================================
+  MIROW DEMO v2.0 — Stabilisation Sprint 1
+  ============================================================
+  Stack : Vanilla JS + MediaPipe FaceMesh + Canvas 2D
+  Charte : V2 (Void / Electric Purple / Hot Pink / Gradient)
+
+  Corrections P0 appliquées :
+   1. Suppression du hack alert/confirm global
+   2. Gestion d'erreur caméra avec messages utilisateur clairs
+   3. Pool de canvas réutilisables (gain FPS sur mobile ~+20 FPS)
+   4. Charte V2 appliquée fidèlement (Georgia, gradient, palettes)
+
+  Architecture du code :
+   - Section CONFIG     : couleurs, palettes, looks (modifiable par marque)
+   - Section UI         : rendu du panel, swatches, looks
+   - Section CAMERA     : init webcam + gestion erreurs
+   - Section TRACKING   : MediaPipe FaceMesh
+   - Section RENDU      : application makeup AR (5 fonctions)
+  ============================================================
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap">
+
+<style>
+/* ============================================================
+   CHARTE GRAPHIQUE V2 — variables CSS
+   ============================================================ */
+:root {
+  --void: #09090F;
+  --surface: #131318;
+  --surface-2: #1C1C24;
+  --electric-purple: #A855F7;
+  --hot-pink: #EC4899;
+  --gradient-neon: linear-gradient(135deg, #A855F7 0%, #EC4899 100%);
+  --cream: #F0ECE6;
+  --text-secondary: rgba(240, 236, 230, 0.5);
+  --text-tertiary: rgba(240, 236, 230, 0.3);
+  --border: rgba(240, 236, 230, 0.08);
+  --border-hover: rgba(240, 236, 230, 0.18);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ============================================================
+   RESET BOUTONS — agressif pour casser le style natif Safari/iOS
+   Sans ce reset, Safari rend les <button> en blanc-sur-blanc
+   avec une bordure système qui ignore notre design.
+   ============================================================ */
+button {
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  outline: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: inherit;
+}
+button:focus { outline: none; }
+button:focus-visible {
+  outline: 1px solid var(--electric-purple);
+  outline-offset: 2px;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--void);
+  color: var(--cream);
+  overflow-x: hidden;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Titres en serif (Georgia) selon charte V2 */
+.serif {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+/* ============================================================
+   LAYOUT GLOBAL
+   ============================================================ */
+.app { display: flex; flex-direction: column; min-height: 100vh; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 0.5px solid var(--border);
+  background: var(--void);
+  position: relative;
+  z-index: 20;
+}
+
+/* Logo Mirow avec gradient sur le "o" central */
+.logo {
+  font-family: Georgia, serif;
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  color: var(--cream);
+}
+.logo .accent {
+  background: var(--gradient-neon);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-style: italic;
+}
+
+.status-wrap { display: flex; align-items: center; gap: 8px; }
+.status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: rgba(240, 236, 230, 0.2);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.status-dot.on {
+  background: #4ADE80;
+  box-shadow: 0 0 8px rgba(74, 222, 128, 0.6);
+}
+.status-dot.error {
+  background: var(--hot-pink);
+  box-shadow: 0 0 8px rgba(236, 72, 153, 0.5);
+}
+.status-text {
+  font-size: 11px;
+  color: var(--text-secondary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ============================================================
+   INDICATEUR DE TONE MATCHING — discret au centre de la topbar
+   ============================================================ */
+.tone-indicator {
+  display: none; /* caché jusqu'à détection */
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px 6px 6px;
+  background: rgba(168, 85, 247, 0.06);
+  border: 0.5px solid rgba(168, 85, 247, 0.15);
+  border-radius: 99px;
+  transition: all 0.3s;
+}
+.tone-indicator.show {
+  display: flex;
+}
+.tone-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #B89580; /* placeholder, remplacé par JS */
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  transition: background 0.4s;
+}
+.tone-label {
+  font-size: 10px;
+  color: var(--cream);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 400;
+}
+.tone-rescan {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: color 0.2s, transform 0.4s;
+}
+.tone-rescan:hover {
+  color: var(--electric-purple);
+}
+.tone-rescan.spinning {
+  transform: rotate(360deg);
+}
+.tone-rescan-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* Sur mobile, on cache le label pour gagner de la place */
+@media (max-width: 640px) {
+  .tone-label { display: none; }
+  .tone-indicator { padding: 4px 8px 4px 4px; }
+}
+
+/* ============================================================
+   ZONE CAMÉRA
+   ============================================================ */
+.main { display: flex; flex: 1; gap: 0; }
+
+.cam-area {
+  flex: 1;
+  position: relative;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 500px;
+  overflow: hidden;
+}
+
+#video, #outputCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* miroir comme un selfie */
+}
+
+/* Overlay d'accueil avant activation caméra */
+.cam-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  z-index: 10;
+  background: var(--void);
+  padding: 24px;
+  text-align: center;
+}
+.cam-overlay.hidden { display: none; }
+
+.cam-frame {
+  width: 140px;
+  height: 180px;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 70px 70px 50px 50px;
+  position: relative;
+  animation: pulse-purple 2.4s ease-in-out infinite;
+}
+.cam-frame::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border: 0.5px solid rgba(236, 72, 153, 0.15);
+  border-radius: 80px 80px 60px 60px;
+  animation: pulse-pink 2.4s ease-in-out infinite 0.4s;
+}
+
+@keyframes pulse-purple {
+  0%, 100% { border-color: rgba(168, 85, 247, 0.2); transform: scale(1); }
+  50% { border-color: rgba(168, 85, 247, 0.6); transform: scale(1.02); }
+}
+@keyframes pulse-pink {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.7; }
+}
+
+.cam-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  max-width: 280px;
+  line-height: 1.6;
+}
+
+/* CTA principal — pill gradient selon charte V2 */
+.cta-gradient {
+  background: var(--gradient-neon);
+  border: none;
+  color: #fff;
+  padding: 14px 36px;
+  border-radius: 99px;
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 8px 24px rgba(168, 85, 247, 0.25);
+}
+.cta-gradient:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px rgba(168, 85, 247, 0.4);
+}
+.cta-gradient:active { transform: translateY(0); }
+
+/* État erreur caméra — message utilisateur clair */
+.cam-error {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  max-width: 360px;
+}
+.cam-error.show { display: flex; }
+.cam-error-icon {
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  background: rgba(236, 72, 153, 0.1);
+  border: 1px solid rgba(236, 72, 153, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+.cam-error-title {
+  font-family: Georgia, serif;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+  color: var(--cream);
+}
+.cam-error-msg {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.cam-error-msg strong { color: var(--cream); font-weight: 500; }
+.retry-btn {
+  background: transparent;
+  border: 0.5px solid var(--electric-purple);
+  color: var(--electric-purple);
+  padding: 10px 24px;
+  border-radius: 99px;
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: all 0.2s;
+  margin-top: 4px;
+}
+.retry-btn:hover {
+  background: rgba(168, 85, 247, 0.1);
+}
+
+/* ============================================================
+   PANEL DROITE — contrôles makeup
+   ============================================================ */
+.panel {
+  width: 320px;
+  background: var(--surface);
+  border-left: 0.5px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 56px);
+  overflow: hidden; /* le scroll se fait sur le wrapper interne */
+}
+
+/* Zone scrollable interne — contient toutes les sections sauf le footer */
+.panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-scroll::-webkit-scrollbar { width: 4px; }
+.panel-scroll::-webkit-scrollbar-track { background: transparent; }
+.panel-scroll::-webkit-scrollbar-thumb {
+  background: rgba(168, 85, 247, 0.2);
+  border-radius: 2px;
+}
+
+.panel-section {
+  padding: 18px 20px;
+  border-bottom: 0.5px solid var(--border);
+}
+
+.section-label {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: 14px;
+}
+
+/* Catégories (Lèvres, Yeux, etc) */
+.cat-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.cat-btn {
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-radius: 99px;
+  border: 0.5px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.cat-btn:hover {
+  border-color: rgba(168, 85, 247, 0.4);
+  color: var(--electric-purple);
+}
+.cat-btn.active {
+  border-color: transparent;
+  background: var(--gradient-neon);
+  color: #fff;
+}
+
+/* Grille de teintes */
+.swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 7px;
+  margin-bottom: 14px;
+}
+.swatch {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: transform 0.15s, border-color 0.15s;
+  position: relative;
+}
+.swatch:hover { transform: scale(1.15); }
+.swatch.sel {
+  border-color: var(--cream);
+  transform: scale(1.1);
+}
+.swatch.sel::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 0.5px solid var(--electric-purple);
+}
+
+/* Slider d'intensité */
+.slider-row { margin-top: 6px; }
+.slider-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.slider-label span:first-child {
+  font-size: 10px;
+  color: var(--text-secondary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.slider-label span:last-child {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--cream);
+  font-variant-numeric: tabular-nums;
+}
+input[type=range] {
+  width: 100%;
+  height: 2px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(240, 236, 230, 0.12);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--gradient-neon);
+  cursor: pointer;
+  border: 2px solid var(--surface);
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.4);
+}
+input[type=range]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #A855F7;
+  cursor: pointer;
+  border: 2px solid var(--surface);
+}
+
+/* Looks pré-définis */
+.look-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.look-card {
+  padding: 12px 8px;
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s;
+}
+.look-card:hover {
+  border-color: var(--border-hover);
+  background: rgba(168, 85, 247, 0.04);
+}
+.look-card.active {
+  border-color: transparent;
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.1) 0%, rgba(236, 72, 153, 0.1) 100%);
+  position: relative;
+}
+.look-card.active::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 10px;
+  padding: 1px;
+  background: var(--gradient-neon);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.look-dots {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+.look-dots span {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.look-name {
+  font-size: 10px;
+  color: var(--text-secondary);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.look-card.active .look-name { color: var(--cream); }
+
+/* Style sourcils — boutons radio horizontaux */
+.brow-style-row {
+  display: flex;
+  gap: 6px;
+}
+.brow-style-btn {
+  flex: 1;
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 0.5px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  /* Reset des styles natifs iOS / Safari pour éviter le rendu par défaut */
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.brow-style-btn:hover {
+  border-color: rgba(168, 85, 247, 0.3);
+  color: var(--electric-purple);
+}
+.brow-style-btn.active {
+  border-color: transparent;
+  background: rgba(168, 85, 247, 0.12);
+  color: var(--electric-purple);
+}
+
+/* Toggles options */
+.toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.toggle-row:last-child { margin-bottom: 0; }
+.toggle-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  letter-spacing: 0.04em;
+}
+.toggle {
+  width: 32px;
+  height: 18px;
+  background: rgba(240, 236, 230, 0.1);
+  border-radius: 99px;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.25s;
+  flex-shrink: 0;
+}
+.toggle.on { background: var(--gradient-neon); }
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 2.5px;
+  left: 2.5px;
+  width: 13px;
+  height: 13px;
+  background: #fff;
+  border-radius: 50%;
+  transition: left 0.25s;
+}
+.toggle.on::after { left: 16.5px; }
+
+/* Carte produit suggéré */
+.product-card {
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--surface-2);
+}
+.product-top {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.product-swatch {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.product-nm {
+  font-size: 13px;
+  color: var(--cream);
+  line-height: 1.3;
+  font-weight: 500;
+}
+.product-br {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-top: 3px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.product-price {
+  font-family: Georgia, serif;
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--cream);
+  letter-spacing: -0.02em;
+}
+.add-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 11px;
+  background: var(--gradient-neon);
+  color: #fff;
+  border: none;
+  border-radius: 99px;
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+.add-btn:hover { transform: translateY(-1px); }
+
+/* Footer — strictement dans le panel, jamais en overflow */
+.footer-bar {
+  padding: 14px 20px;
+  text-align: center;
+  margin-top: auto;
+  background: var(--void);
+  border-top: 0.5px solid var(--border);
+  flex-shrink: 0;
+  width: 100%;
+}
+.footer-txt {
+  font-size: 9px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.footer-txt .accent {
+  background: var(--gradient-neon);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 500;
+}
+
+/* Responsive : tablette + mobile */
+@media (max-width: 900px) {
+  .panel { width: 280px; }
+}
+@media (max-width: 640px) {
+  .main { flex-direction: column; }
+  .panel {
+    width: 100%;
+    max-height: none;
+    border-left: none;
+    border-top: 0.5px solid var(--border);
+  }
+  .cam-area { min-height: 320px; height: 50vh; }
+  .swatch-grid { grid-template-columns: repeat(8, 1fr); }
+}
+</style>
+</head>
+
+<body>
+<div class="app">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="logo">mir<span class="accent">o</span>w</div>
+
+    <!-- Indicateur de tone matching (visible une fois détecté) -->
+    <div class="tone-indicator" id="toneIndicator">
+      <div class="tone-swatch" id="toneSwatch"></div>
+      <span class="tone-label" id="toneLabel">Détection en cours...</span>
+      <button class="tone-rescan" id="toneRescan" title="Re-analyser">
+        <span class="tone-rescan-icon">↻</span>
+      </button>
+    </div>
+
+    <div class="status-wrap">
+      <div class="status-dot" id="statusDot"></div>
+      <span class="status-text" id="statusText">Prête à démarrer</span>
+    </div>
+  </div>
+
+  <!-- ZONE PRINCIPALE -->
+  <div class="main">
+
+    <!-- Caméra + canvas overlay -->
+    <div class="cam-area">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="outputCanvas"></canvas>
+
+      <!-- Overlay d'accueil (pré-démarrage) -->
+      <div class="cam-overlay" id="camOverlay">
+        <div class="cam-frame"></div>
+        <p class="cam-hint">Positionnez votre visage dans le cadre</p>
+        <button class="cta-gradient" id="startBtn">Activer la caméra</button>
+
+        <!-- État d'erreur (caché par défaut) -->
+        <div class="cam-error" id="camError">
+          <div class="cam-error-icon">!</div>
+          <div class="cam-error-title" id="errorTitle">Caméra inaccessible</div>
+          <div class="cam-error-msg" id="errorMsg"></div>
+          <button class="retry-btn" id="retryBtn">Réessayer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel de contrôles -->
+    <div class="panel">
+
+      <!-- Zone scrollable contenant toutes les sections -->
+      <div class="panel-scroll">
+
+      <div class="panel-section">
+        <div class="section-label">Catégorie</div>
+        <div class="cat-row" id="catRow">
+          <button class="cat-btn active" data-cat="lips">Lèvres</button>
+          <button class="cat-btn" data-cat="eyes">Yeux</button>
+          <button class="cat-btn" data-cat="blush">Blush</button>
+          <button class="cat-btn" data-cat="brows">Sourcils</button>
+          <button class="cat-btn" data-cat="highlight">Éclat</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-label">Teinte</div>
+        <div class="swatch-grid" id="swatchGrid"></div>
+        <div class="slider-row">
+          <div class="slider-label">
+            <span>Intensité</span>
+            <span id="opVal">70%</span>
+          </div>
+          <input type="range" min="10" max="100" value="70" id="opSlider">
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-label">Looks</div>
+        <div class="look-grid" id="lookGrid"></div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-label">Style lèvres</div>
+        <div class="brow-style-row" id="lipStyleRow">
+          <button class="brow-style-btn" data-style="matte">Mat</button>
+          <button class="brow-style-btn active" data-style="glossy">Glossy</button>
+          <button class="brow-style-btn" data-style="metallic">Metallic</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-label">Style sourcils</div>
+        <div class="brow-style-row" id="browStyleRow">
+          <button class="brow-style-btn active" data-style="natural">Naturel</button>
+          <button class="brow-style-btn" data-style="defined">Défini</button>
+          <button class="brow-style-btn" data-style="brushed">Brossé</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-label">Style yeux</div>
+        <div class="brow-style-row" id="eyeStyleRow">
+          <button class="brow-style-btn active" data-style="natural">Naturel</button>
+          <button class="brow-style-btn" data-style="defined">Défini</button>
+          <button class="brow-style-btn" data-style="smoky">Smoky</button>
+        </div>
+        <div class="toggle-row" style="margin-top: 14px;">
+          <span class="toggle-label">Eyeliner</span>
+          <div class="toggle" id="eyelinerToggle"></div>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-label">Options</div>
+        <div class="toggle-row">
+          <span class="toggle-label">Lissage peau</span>
+          <div class="toggle on" data-toggle="smooth"></div>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Contour visage</span>
+          <div class="toggle" data-toggle="contour"></div>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-label">Produit suggéré</div>
+        <div id="productCard"></div>
+      </div>
+
+      </div><!-- /.panel-scroll -->
+
+      <!-- Footer toujours visible en bas du panel -->
+      <div class="footer-bar">
+        <div class="footer-txt">Propulsé par <span class="accent">Mirow AR</span></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Librairies MediaPipe (chargées en différé pour ne pas bloquer le rendu initial) -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+<script>
+// ============================================================
+// CONFIG — palettes et looks (modifiable par marque)
+// ============================================================
+const PALETTES = {
+  lips: [
+    { c:'#A855F7', n:'Rose Poudré',   p:'Rouge Velours',     b:"L'Oréal",            pr:'14,90 €' },
+    { c:'#E8735A', n:'Corail Vif',    p:'Corail Passion',    b:'NYX',                pr:'9,90 €'  },
+    { c:'#7C3AED', n:'Framboise',     p:'Matte Framboise',   b:'Maybelline',         pr:'11,50 €' },
+    { c:'#7B3F6E', n:'Prune',         p:'Plum Intense',      b:'MAC',                pr:'24,00 €' },
+    { c:'#5C2D4E', n:'Berry',         p:'Berry Midnight',    b:'Urban Decay',        pr:'21,00 €' },
+    { c:'#C49A7A', n:'Nude Sable',    p:'Nude Sable',        b:'Charlotte Tilbury',  pr:'29,00 €' },
+    { c:'#F0A98A', n:'Pêche',         p:'Peachy Keen',       b:'NARS',               pr:'27,00 €' },
+    { c:'#B07070', n:'Terracotta',    p:'Terracotta Matte',  b:'Fenty Beauty',       pr:'22,00 €' },
+    { c:'#8B2252', n:'Cerise',        p:'Cherry Bomb',       b:'Bobbi Brown',        pr:'31,00 €' },
+    { c:'#D04060', n:'Rouge',         p:'Russian Red',       b:'MAC',                pr:'24,00 €' },
+    { c:'#E60023', n:'Rouge Vif',     p:'Ruby Woo',          b:'MAC',                pr:'24,00 €' },
+    { c:'#602040', n:'Bordeaux',      p:'Dark Side',         b:'Chanel',             pr:'42,00 €' },
+    { c:'#1A0F12', n:'Noir',          p:'Black Honey',       b:'Pat McGrath',        pr:'42,00 €' },
+    { c:'#E8C4A0', n:'Café au Lait',  p:'Café au Lait',      b:'Huda Beauty',        pr:'18,00 €' },
+  ],
+  eyes: [
+    { c:'#4A2F1A', n:'Brun Profond',  p:'Palette Smoky',     b:'Urban Decay',        pr:'39,00 €' },
+    { c:'#1A1A2E', n:'Navy Noir',     p:'Navy Night',        b:'Benefit',            pr:'28,00 €' },
+    { c:'#7B5EA7', n:'Violet Fumé',   p:'Violet Smoke',      b:'Charlotte Tilbury',  pr:'56,00 €' },
+    { c:'#1A4A6E', n:'Bleu Marine',   p:'Blue Steel',        b:'Armani',             pr:'48,00 €' },
+    { c:'#6B4226', n:'Bronze',        p:'Sunset Bronze',     b:'Too Faced',          pr:'35,00 €' },
+    { c:'#1A1A1A', n:'Noir Intense',  p:'Noir Intense',      b:'Lancôme',            pr:'33,00 €' },
+    { c:'#8B6914', n:'Or Antique',    p:'Gold Digger',       b:'Jeffree Star',       pr:'19,00 €' },
+    { c:'#5C4033', n:'Taupe',         p:'Taupe Mauve',       b:'Anastasia BH',       pr:'45,00 €' },
+    { c:'#704060', n:'Prune Yeux',    p:'Plum Smoky',        b:'Dior',               pr:'55,00 €' },
+    { c:'#4A6741', n:'Kaki',          p:'Kaki Fusion',       b:'NYX',                pr:'15,00 €' },
+  ],
+  blush: [
+    { c:'#F4A0B0', n:'Bébé Rose',     p:'Blush Bébé',        b:'NARS',               pr:'34,00 €' },
+    { c:'#E87A7A', n:'Pêche Vive',    p:'Orgasm',            b:'NARS',               pr:'34,00 €' },
+    { c:'#A855F7', n:'Rose Frais',    p:'Joues Contraste',   b:'Chanel',             pr:'47,00 €' },
+    { c:'#F0B07A', n:'Pêche Abricot', p:'Peach Pop',         b:'Clinique',           pr:'28,00 €' },
+    { c:'#E8A87A', n:'Corail',        p:'Coralista',         b:'Benefit',            pr:'32,00 €' },
+    { c:'#D4909A', n:'Mauve Rosé',    p:'Mauve Haze',        b:'Rare Beauty',        pr:'26,00 €' },
+  ],
+  brows: [
+    { c:'#3D2B1A', n:'Brun Foncé',    p:'Brow Wiz',          b:'Anastasia BH',       pr:'23,00 €' },
+    { c:'#5C3D1A', n:'Brun Moyen',    p:'Boy Brow',          b:'Glossier',           pr:'18,00 €' },
+    { c:'#8B6914', n:'Châtain',       p:'Brow Pencil',       b:'NYX',                pr:'12,00 €' },
+    { c:'#2C1810', n:'Noir',          p:'Micro Brow',        b:'e.l.f.',             pr:'10,00 €' },
+    { c:'#C49A7A', n:'Blond',         p:'Brow Pomade',       b:'MAC',                pr:'22,00 €' },
+    { c:'#6B4226', n:'Auburn',        p:'Brow Definer',      b:'Benefit',            pr:'25,00 €' },
+  ],
+  highlight: [
+    { c:'#FFE9B0', n:'Or Champagne',  p:'Sun Lit',           b:'NARS',               pr:'38,00 €' },
+    { c:'#FFF0C0', n:'Doré Nacré',    p:'Mary-Lou',          b:'TheBalm',            pr:'28,00 €' },
+    { c:'#FFD9A0', n:'Bronze Soleil', p:'Killawatt',         b:'Fenty Beauty',       pr:'36,00 €' },
+    { c:'#F5E8FF', n:'Parme Irisé',   p:'Becca Pearl',       b:'BECCA',              pr:'42,00 €' },
+    { c:'#E0F5FF', n:'Perle Bleue',   p:'Blue Light',        b:'Charlotte Tilbury',  pr:'44,00 €' },
+    { c:'#FFEEDD', n:'Ivoire Satin',  p:'Soft Focus',        b:'Laura Mercier',      pr:'32,00 €' },
+  ],
+};
+
+// Looks pré-configurés (combos de teintes)
+const LOOKS = [
+  { id:'natural', name:'Naturel',
+    dots:['#E8A87A','#A855F7','#C49A7A'],
+    lips:{c:'#A855F7',op:0.55}, eyes:{c:'#5C4033',op:0.25}, blush:{c:'#F4A0B0',op:0.2},
+    brows:{c:'#5C3D1A',op:0.35}, highlight:{c:'#FFE9B0',op:0.25} },
+  { id:'glam', name:'Glam',
+    dots:['#7B3F6E','#E8735A','#C9924A'],
+    lips:{c:'#7C3AED',op:0.8}, eyes:{c:'#7B3F6E',op:0.6}, blush:{c:'#E87A7A',op:0.35},
+    brows:{c:'#3D2B1A',op:0.5}, highlight:{c:'#FFD9A0',op:0.4} },
+  { id:'nude', name:'Nude',
+    dots:['#C49A7A','#DDB89A','#E8D0C0'],
+    lips:{c:'#DDB89A',op:0.6}, eyes:{c:'#8B6914',op:0.2}, blush:{c:'#F0C0B0',op:0.15},
+    brows:{c:'#5C3D1A',op:0.3}, highlight:{c:'#FFF0C0',op:0.3} },
+  { id:'bold', name:'Bold',
+    dots:['#5C2D4E','#7C3AED','#1A1A1A'],
+    lips:{c:'#5C2D4E',op:0.9}, eyes:{c:'#1A1A1A',op:0.7}, blush:{c:'#C47898',op:0.3},
+    brows:{c:'#2C1810',op:0.6}, highlight:{c:'rgba(0,0,0,0)',op:0} },
+  { id:'sunset', name:'Sunset',
+    dots:['#E8735A','#F0A98A','#8B6914'],
+    lips:{c:'#E8735A',op:0.75}, eyes:{c:'#6B4226',op:0.5}, blush:{c:'#E8A87A',op:0.3},
+    brows:{c:'#5C3D1A',op:0.4}, highlight:{c:'#FFD9A0',op:0.35} },
+  { id:'berry', name:'Berry',
+    dots:['#7B3F6E','#A855F7','#5C2D4E'],
+    lips:{c:'#7B3F6E',op:0.8}, eyes:{c:'#5C4033',op:0.4}, blush:{c:'#A855F7',op:0.25},
+    brows:{c:'#3D2B1A',op:0.5}, highlight:{c:'#F5E8FF',op:0.3} },
+];
+
+// ============================================================
+// ÉTAT — variables globales mutables
+// ============================================================
+let currentCat = 'lips';
+let currentColor = '#A855F7';
+let currentOp = 0.7;
+let currentBrowStyle = 'natural'; // 'natural' | 'defined' | 'brushed'
+let currentEyeStyle = 'natural';  // 'natural' | 'defined' | 'smoky'
+let eyelinerEnabled = false;       // toggle eyeliner on/off
+let currentLipStyle = 'glossy';   // 'matte' | 'glossy' | 'metallic'
+
+// Tone matching — détecté au démarrage et stocké
+// Niveaux : 'very-light' | 'light' | 'medium' | 'deep' | null (avant détection)
+let detectedTone = null;
+let toneRGB = null; // RGB moyen de la peau pour debug et affichage
+
+// État des 5 catégories de makeup (modifié par swatches/sliders/looks)
+let makeup = {
+  lips:      { c:'#A855F7', op:0.55 },
+  eyes:      { c:'#5C4033', op:0.25 },
+  blush:     { c:'#F4A0B0', op:0.2  },
+  brows:     { c:'#5C3D1A', op:0.35 },
+  highlight: { c:'#FFE9B0', op:0.25 },
+};
+
+// Références DOM
+const video       = document.getElementById('video');
+const canvas      = document.getElementById('outputCanvas');
+const ctx         = canvas.getContext('2d');
+const camOverlay  = document.getElementById('camOverlay');
+const camError    = document.getElementById('camError');
+const errorTitle  = document.getElementById('errorTitle');
+const errorMsg    = document.getElementById('errorMsg');
+const startBtn    = document.getElementById('startBtn');
+const retryBtn    = document.getElementById('retryBtn');
+const statusDot   = document.getElementById('statusDot');
+const statusText  = document.getElementById('statusText');
+
+// ============================================================
+// FIX P0.3 — POOL DE CANVAS RÉUTILISABLES
+// ----------------------------------------------------------
+// On crée les canvas temporaires UNE SEULE FOIS au démarrage
+// au lieu d'en créer à chaque frame. Gain estimé : +20 FPS sur mobile.
+// ============================================================
+const tmpCanvases = {
+  lips:    document.createElement('canvas'),
+  eyes:    document.createElement('canvas'),       // ombre à paupière
+  eyeliner:document.createElement('canvas'),       // ligne d'eyeliner
+  mascara: document.createElement('canvas'),       // zone des cils
+  browL:   document.createElement('canvas'),
+  browR:   document.createElement('canvas'),
+};
+const tmpContexts = {
+  lips:     tmpCanvases.lips.getContext('2d'),
+  eyes:     tmpCanvases.eyes.getContext('2d'),
+  eyeliner: tmpCanvases.eyeliner.getContext('2d'),
+  mascara:  tmpCanvases.mascara.getContext('2d'),
+  browL:    tmpCanvases.browL.getContext('2d'),
+  browR:    tmpCanvases.browR.getContext('2d'),
+};
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+/** Convertit une couleur hex (#RRGGBB) en {r,g,b} */
+function hexToRgb(hex) {
+  if (!hex || hex.startsWith('rgba')) return { r:200, g:100, b:100 };
+  hex = hex.replace('#', '');
+  return {
+    r: parseInt(hex.slice(0, 2), 16),
+    g: parseInt(hex.slice(2, 4), 16),
+    b: parseInt(hex.slice(4, 6), 16),
+  };
+}
+
+/** Récupère la position pixel d'un landmark MediaPipe */
+function pt(lm, i, W, H) {
+  return { x: lm[i].x * W, y: lm[i].y * H };
+}
+
+/** Reset un canvas temporaire (taille + clear) */
+function resetTmpCanvas(name, W, H) {
+  const c = tmpCanvases[name];
+  // Setter width/height clear automatiquement le canvas
+  if (c.width !== W) c.width = W;
+  if (c.height !== H) c.height = H;
+  tmpContexts[name].clearRect(0, 0, W, H);
+  return tmpContexts[name];
+}
+
+// ============================================================
+// UI — rendu du panel
+// ============================================================
+
+function renderSwatches() {
+  const grid = document.getElementById('swatchGrid');
+  grid.innerHTML = '';
+  (PALETTES[currentCat] || []).forEach(({ c, n }) => {
+    const sw = document.createElement('div');
+    sw.className = 'swatch' + (c === currentColor ? ' sel' : '');
+    sw.style.background = c;
+    sw.title = n;
+    sw.addEventListener('click', () => {
+      currentColor = c;
+      makeup[currentCat] = { c, op: currentOp };
+      updateProduct();
+      renderSwatches();
+    });
+    grid.appendChild(sw);
+  });
+}
+
+function renderLooks() {
+  const grid = document.getElementById('lookGrid');
+  grid.innerHTML = '';
+  LOOKS.forEach(look => {
+    const card = document.createElement('div');
+    card.className = 'look-card' + (look.id === 'natural' ? ' active' : '');
+    card.innerHTML = `
+      <div class="look-dots">${look.dots.map(c => `<span style="background:${c}"></span>`).join('')}</div>
+      <div class="look-name">${look.name}</div>
+    `;
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.look-card').forEach(b => b.classList.remove('active'));
+      card.classList.add('active');
+      // Application complète du look sur les 5 catégories
+      makeup = {
+        lips:      { ...look.lips },
+        eyes:      { ...look.eyes },
+        blush:     { ...look.blush },
+        brows:     { ...look.brows },
+        highlight: { ...look.highlight },
+      };
+      const cur = makeup[currentCat];
+      if (cur) {
+        currentColor = cur.c;
+        currentOp = cur.op;
+        document.getElementById('opSlider').value = Math.round(cur.op * 100);
+        document.getElementById('opVal').textContent = Math.round(cur.op * 100) + '%';
+      }
+      renderSwatches();
+      updateProduct();
+    });
+    grid.appendChild(card);
+  });
+}
+
+function updateProduct() {
+  const palette = PALETTES[currentCat] || [];
+  const found = palette.find(x => x.c === currentColor) || palette[0];
+  if (!found) return;
+  document.getElementById('productCard').innerHTML = `
+    <div class="product-card">
+      <div class="product-top">
+        <div class="product-swatch" style="background:${found.c}"></div>
+        <div>
+          <div class="product-nm">${found.p}</div>
+          <div class="product-br">${found.b}</div>
+        </div>
+      </div>
+      <div class="product-price">${found.pr}</div>
+      <button class="add-btn">Voir le produit →</button>
+    </div>
+  `;
+}
+
+// Gestion des boutons catégories
+document.getElementById('catRow').addEventListener('click', (e) => {
+  const btn = e.target.closest('.cat-btn');
+  if (!btn) return;
+  const cat = btn.dataset.cat;
+  currentCat = cat;
+  document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const cur = makeup[cat];
+  if (cur) {
+    currentColor = cur.c;
+    currentOp = cur.op;
+    document.getElementById('opSlider').value = Math.round(cur.op * 100);
+    document.getElementById('opVal').textContent = Math.round(cur.op * 100) + '%';
+  }
+  renderSwatches();
+  updateProduct();
+});
+
+// Gestion du slider d'intensité
+document.getElementById('opSlider').addEventListener('input', (e) => {
+  const v = e.target.value;
+  currentOp = v / 100;
+  document.getElementById('opVal').textContent = v + '%';
+  makeup[currentCat] = { c: currentColor, op: currentOp };
+});
+
+// Gestion des toggles
+document.querySelectorAll('.toggle').forEach(t => {
+  t.addEventListener('click', () => t.classList.toggle('on'));
+});
+
+// Gestion du sélecteur de style sourcils
+document.getElementById('browStyleRow').addEventListener('click', (e) => {
+  const btn = e.target.closest('.brow-style-btn');
+  if (!btn) return;
+  currentBrowStyle = btn.dataset.style;
+  document.querySelectorAll('#browStyleRow .brow-style-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+});
+
+// Gestion du sélecteur de style yeux
+document.getElementById('eyeStyleRow').addEventListener('click', (e) => {
+  const btn = e.target.closest('.brow-style-btn');
+  if (!btn) return;
+  currentEyeStyle = btn.dataset.style;
+  document.querySelectorAll('#eyeStyleRow .brow-style-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+});
+
+// Toggle eyeliner (off par défaut)
+document.getElementById('eyelinerToggle').addEventListener('click', (e) => {
+  eyelinerEnabled = !eyelinerEnabled;
+  e.currentTarget.classList.toggle('on', eyelinerEnabled);
+});
+
+// Gestion du sélecteur de style lèvres
+document.getElementById('lipStyleRow').addEventListener('click', (e) => {
+  const btn = e.target.closest('.brow-style-btn');
+  if (!btn) return;
+  currentLipStyle = btn.dataset.style;
+  document.querySelectorAll('#lipStyleRow .brow-style-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+});
+
+// ============================================================
+// FIX P0.2 — GESTION D'ERREUR CAMÉRA
+// ----------------------------------------------------------
+// Au lieu d'un message générique "Caméra non disponible",
+// on identifie le type d'erreur et on donne une instruction claire.
+// ============================================================
+
+const CAMERA_ERRORS = {
+  NotAllowedError: {
+    title: 'Permission refusée',
+    msg: "Vous avez refusé l'accès à la caméra. Pour réessayer, cliquez sur l'icône <strong>cadenas</strong> dans la barre d'adresse de votre navigateur, puis autorisez la caméra.",
+  },
+  NotFoundError: {
+    title: 'Aucune caméra détectée',
+    msg: 'Votre appareil ne semble pas avoir de caméra accessible. Vérifiez qu\'aucune autre application ne l\'utilise actuellement.',
+  },
+  NotReadableError: {
+    title: 'Caméra occupée',
+    msg: 'Votre caméra est utilisée par une autre application (Zoom, FaceTime, etc). Fermez-la puis réessayez.',
+  },
+  OverconstrainedError: {
+    title: 'Caméra incompatible',
+    msg: 'Votre caméra ne supporte pas la résolution demandée. Essayez avec un autre appareil.',
+  },
+  SecurityError: {
+    title: 'Connexion non sécurisée',
+    msg: 'L\'accès à la caméra nécessite une connexion sécurisée (HTTPS).',
+  },
+  default: {
+    title: 'Caméra inaccessible',
+    msg: 'Une erreur inattendue s\'est produite. Essayez de recharger la page ou utilisez un autre navigateur (Chrome, Safari, Firefox).',
+  },
+};
+
+function showCameraError(error) {
+  const errInfo = CAMERA_ERRORS[error.name] || CAMERA_ERRORS.default;
+  errorTitle.textContent = errInfo.title;
+  errorMsg.innerHTML = errInfo.msg;
+  startBtn.style.display = 'none';
+  document.querySelector('.cam-frame').style.display = 'none';
+  document.querySelector('.cam-hint').style.display = 'none';
+  camError.classList.add('show');
+  statusDot.classList.remove('on');
+  statusDot.classList.add('error');
+  statusText.textContent = 'Erreur';
+  console.error('[Mirow] Camera error:', error.name, error.message);
+}
+
+function resetCameraOverlay() {
+  camError.classList.remove('show');
+  startBtn.style.display = '';
+  document.querySelector('.cam-frame').style.display = '';
+  document.querySelector('.cam-hint').style.display = '';
+  statusDot.classList.remove('error');
+  statusText.textContent = 'Prête à démarrer';
+}
+
+// ============================================================
+// CAMÉRA + TRACKING
+// ============================================================
+
+async function startCamera() {
+  try {
+    statusText.textContent = 'Activation...';
+
+    // Reset du tone matching pour re-détection
+    detectedTone = null;
+    toneRGB = null;
+    document.getElementById('toneIndicator').classList.remove('show');
+
+    // Reset du lissage temporel (évite saut visuel au redémarrage)
+    smoothedLandmarks = null;
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'user',
+        width:  { ideal: 640 },
+        height: { ideal: 480 },
+      },
+      audio: false,
+    });
+    video.srcObject = stream;
+    await video.play();
+    camOverlay.classList.add('hidden');
+    statusDot.classList.add('on');
+    statusText.textContent = 'Détection active';
+    initFaceMesh();
+  } catch (e) {
+    showCameraError(e);
+  }
+}
+
+function initFaceMesh() {
+  const fm = new FaceMesh({
+    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`,
+  });
+  fm.setOptions({
+    maxNumFaces: 1,
+    refineLandmarks: true,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.7,
+  });
+  fm.onResults(onResults);
+
+  // Camera utility de MediaPipe pour boucle de frames
+  const cam = new Camera(video, {
+    onFrame: async () => {
+      try {
+        await fm.send({ image: video });
+      } catch (err) {
+        // Erreur silencieuse acceptable ici (frame skip)
+        // mais on log pour debug en dev
+        console.warn('[Mirow] FaceMesh frame error:', err);
+      }
+    },
+    width: 640,
+    height: 480,
+  });
+  cam.start();
+}
+
+// ============================================================
+// LISSAGE TEMPOREL DES LANDMARKS
+// ----------------------------------------------------------
+// MediaPipe FaceMesh produit naturellement du jitter (~1-3px de
+// variation entre frames même sans bouger). Sur les fines lignes
+// comme l'eyeliner, ça crée un tremblement visible.
+//
+// On applique un Exponential Moving Average (EMA) :
+//   smoothed = alpha * current + (1 - alpha) * previous
+//
+// alpha bas (0.3) = très lissé mais latence de réponse
+// alpha haut (0.7) = réactif mais plus de jitter
+// alpha = 0.5 = bon compromis pour mobile
+// ============================================================
+let smoothedLandmarks = null;
+const SMOOTHING_ALPHA = 0.5;
+
+function smoothLandmarks(currentLm) {
+  if (!smoothedLandmarks) {
+    // Premier frame : on copie directement
+    smoothedLandmarks = currentLm.map(p => ({ x: p.x, y: p.y, z: p.z }));
+    return smoothedLandmarks;
+  }
+
+  // EMA pour chaque landmark
+  for (let i = 0; i < currentLm.length; i++) {
+    smoothedLandmarks[i].x = SMOOTHING_ALPHA * currentLm[i].x + (1 - SMOOTHING_ALPHA) * smoothedLandmarks[i].x;
+    smoothedLandmarks[i].y = SMOOTHING_ALPHA * currentLm[i].y + (1 - SMOOTHING_ALPHA) * smoothedLandmarks[i].y;
+    smoothedLandmarks[i].z = SMOOTHING_ALPHA * currentLm[i].z + (1 - SMOOTHING_ALPHA) * smoothedLandmarks[i].z;
+  }
+
+  return smoothedLandmarks;
+}
+
+function onResults(results) {
+  const W = video.videoWidth || 640;
+  const H = video.videoHeight || 480;
+  if (canvas.width !== W) canvas.width = W;
+  if (canvas.height !== H) canvas.height = H;
+  ctx.clearRect(0, 0, W, H);
+
+  if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+    // Lissage temporel pour réduire le jitter
+    const smoothed = smoothLandmarks(results.multiFaceLandmarks[0]);
+    applyMakeupAR(smoothed, W, H);
+  }
+}
+
+function applyMakeupAR(lm, W, H) {
+  // Détection du ton de peau au premier frame (ou re-déclenchée)
+  // On le fait UNE seule fois pour stabilité visuelle
+  if (detectedTone === null) {
+    detectSkinTone(lm, W, H);
+  }
+
+  // Ordre : du fond vers le devant (peau → blush → highlight → yeux → sourcils → lèvres)
+  applyBlush(lm, W, H);
+  applyHighlight(lm, W, H);
+  applyEyes(lm, W, H);
+  applyBrows(lm, W, H);
+  applyLips(lm, W, H);
+}
+
+// ============================================================
+// TONE MATCHING — détection et adaptation
+// ============================================================
+
+/**
+ * Détecte la teinte moyenne de peau en samplant 4 zones du visage
+ * où il n'y a typiquement pas de maquillage : front, joues, menton.
+ *
+ * Cette fonction lit les pixels de la vidéo source (pas du canvas
+ * de rendu) pour avoir la couleur de peau RÉELLE, sans maquillage.
+ */
+function detectSkinTone(lm, W, H) {
+  // Création d'un canvas temporaire pour lire les pixels de la vidéo
+  // On le fait une fois et on le jette (pas besoin de pool ici)
+  const sampleCanvas = document.createElement('canvas');
+  sampleCanvas.width = W;
+  sampleCanvas.height = H;
+  const sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true });
+
+  // Important : on dessine la vidéo SANS le miroir
+  // (la vidéo affichée est inversée via CSS, pas dans le canvas)
+  sampleCtx.drawImage(video, 0, 0, W, H);
+
+  // 4 zones de sampling : front, joue gauche, joue droite, menton
+  // Indices MediaPipe choisis pour être HORS des zones de maquillage
+  const sampleZones = [
+    { name: 'front',     idx: 9   }, // milieu front
+    { name: 'cheekL',    idx: 234 }, // joue gauche (loin du blush)
+    { name: 'cheekR',    idx: 454 }, // joue droite (loin du blush)
+    { name: 'chin',      idx: 152 }, // menton
+  ];
+
+  const samples = [];
+
+  sampleZones.forEach(({ name, idx }) => {
+    const p = pt(lm, idx, W, H);
+    // On sample un petit carré de 5x5 pixels pour moyenner le bruit
+    const size = 5;
+    const x = Math.max(0, Math.min(W - size, Math.round(p.x - size / 2)));
+    const y = Math.max(0, Math.min(H - size, Math.round(p.y - size / 2)));
+
+    try {
+      const imageData = sampleCtx.getImageData(x, y, size, size);
+      const pixels = imageData.data;
+
+      let r = 0, g = 0, b = 0;
+      const pixelCount = size * size;
+      for (let i = 0; i < pixels.length; i += 4) {
+        r += pixels[i];
+        g += pixels[i + 1];
+        b += pixels[i + 2];
+      }
+      r = Math.round(r / pixelCount);
+      g = Math.round(g / pixelCount);
+      b = Math.round(b / pixelCount);
+
+      // Filtrage : on rejette les samples aberrants
+      // (pixels noirs = cheveux/ombre, pixels saturés = bug)
+      const luminance = (r + g + b) / 3;
+      if (luminance > 50 && luminance < 250) {
+        samples.push({ name, r, g, b, luminance });
+      }
+    } catch (err) {
+      // CORS ou autre erreur de lecture, on ignore ce sample
+      console.warn('[Mirow] Skin sample failed:', name, err);
+    }
+  });
+
+  // Si on n'a pas assez de samples valides, on retry plus tard
+  if (samples.length < 2) {
+    console.warn('[Mirow] Pas assez de samples valides, retry au prochain frame');
+    return;
+  }
+
+  // Moyenne des samples valides
+  const avg = samples.reduce((acc, s) => ({
+    r: acc.r + s.r,
+    g: acc.g + s.g,
+    b: acc.b + s.b,
+  }), { r: 0, g: 0, b: 0 });
+
+  avg.r = Math.round(avg.r / samples.length);
+  avg.g = Math.round(avg.g / samples.length);
+  avg.b = Math.round(avg.b / samples.length);
+
+  toneRGB = avg;
+
+  // Classification en 4 catégories selon la luminance
+  const luminance = (avg.r + avg.g + avg.b) / 3;
+  if (luminance > 200)      detectedTone = 'very-light';
+  else if (luminance > 165) detectedTone = 'light';
+  else if (luminance > 130) detectedTone = 'medium';
+  else                       detectedTone = 'deep';
+
+  console.log('[Mirow] Skin tone detected:', detectedTone, 'avg RGB:', avg, 'luminance:', luminance.toFixed(1));
+
+  // Mise à jour de l'UI
+  updateToneIndicator();
+}
+
+/**
+ * Met à jour l'indicateur visuel dans la topbar
+ */
+function updateToneIndicator() {
+  const indicator = document.getElementById('toneIndicator');
+  const swatch = document.getElementById('toneSwatch');
+  const label = document.getElementById('toneLabel');
+
+  if (!detectedTone || !toneRGB) return;
+
+  // Affichage de la pastille avec la vraie couleur détectée
+  swatch.style.background = `rgb(${toneRGB.r},${toneRGB.g},${toneRGB.b})`;
+
+  // Label en français selon la catégorie
+  const labels = {
+    'very-light': 'Très claire',
+    'light':      'Claire',
+    'medium':     'Médium',
+    'deep':       'Foncée',
+  };
+  label.textContent = `Ton ${labels[detectedTone]}`;
+
+  // Affichage de l'indicateur (s'il était caché)
+  indicator.classList.add('show');
+}
+
+/**
+ * Re-déclenche la détection (bouton refresh)
+ */
+function rescanTone() {
+  const btn = document.getElementById('toneRescan');
+  btn.classList.add('spinning');
+  setTimeout(() => btn.classList.remove('spinning'), 500);
+
+  detectedTone = null;
+  toneRGB = null;
+  document.getElementById('toneLabel').textContent = 'Re-analyse...';
+  // La détection se re-fera au prochain frame dans applyMakeupAR
+}
+
+/**
+ * Retourne les ajustements de rendu pour la catégorie demandée
+ * en fonction du ton de peau détecté.
+ *
+ * Format retourné : { opMultiplier, satBoost, ... }
+ *  - opMultiplier : multiplicateur d'opacité (1.0 = pas de changement)
+ *  - satBoost     : boost de saturation (1.0 = pas de changement)
+ */
+function getToneAdjustments(category) {
+  // Si pas de détection, valeurs neutres
+  if (!detectedTone) {
+    return { opMultiplier: 1.0, satBoost: 1.0 };
+  }
+
+  // Tableau d'ajustements : par catégorie de makeup × par ton de peau
+  const adjustments = {
+    lips: {
+      'very-light': { opMultiplier: 1.0,  satBoost: 1.0  },
+      'light':      { opMultiplier: 1.0,  satBoost: 1.0  },
+      'medium':     { opMultiplier: 1.05, satBoost: 1.05 },
+      'deep':       { opMultiplier: 1.15, satBoost: 1.10 },
+    },
+    eyes: {
+      'very-light': { opMultiplier: 1.0,  satBoost: 1.0  },
+      'light':      { opMultiplier: 1.0,  satBoost: 1.0  },
+      'medium':     { opMultiplier: 1.10, satBoost: 1.0  },
+      'deep':       { opMultiplier: 1.20, satBoost: 1.05 },
+    },
+    blush: {
+      'very-light': { opMultiplier: 0.95, satBoost: 1.0  },
+      'light':      { opMultiplier: 1.0,  satBoost: 1.0  },
+      'medium':     { opMultiplier: 1.10, satBoost: 1.05 },
+      'deep':       { opMultiplier: 1.25, satBoost: 1.15 },
+    },
+    highlight: {
+      'very-light': { opMultiplier: 1.0,  satBoost: 1.0  },
+      'light':      { opMultiplier: 1.0,  satBoost: 1.0  },
+      'medium':     { opMultiplier: 1.15, satBoost: 1.0  },
+      'deep':       { opMultiplier: 1.30, satBoost: 1.0  },
+    },
+    brows: {
+      // Sourcils non ajustés (la couleur est déjà choisie par l'utilisateur)
+      'very-light': { opMultiplier: 1.0, satBoost: 1.0 },
+      'light':      { opMultiplier: 1.0, satBoost: 1.0 },
+      'medium':     { opMultiplier: 1.0, satBoost: 1.0 },
+      'deep':       { opMultiplier: 1.0, satBoost: 1.0 },
+    },
+  };
+
+  return adjustments[category]?.[detectedTone] || { opMultiplier: 1.0, satBoost: 1.0 };
+}
+
+// Branchement du bouton refresh
+document.getElementById('toneRescan').addEventListener('click', rescanTone);
+
+// ============================================================
+// RENDU MAKEUP — 5 fonctions, une par catégorie
+// ============================================================
+
+/** Lèvres : remplissage + léger reflet humide */
+function applyLips(lm, W, H) {
+  const m = makeup.lips;
+  if (!m || !m.c) return;
+  const rgb = hexToRgb(m.c);
+
+  // ========================================================
+  // TONE MATCHING — ajustement selon ton de peau détecté
+  // ========================================================
+  const toneAdj = getToneAdjustments('lips');
+
+  // ========================================================
+  // ANATOMIE DES LÈVRES DANS MEDIAPIPE FACEMESH
+  // --------------------------------------------------------
+  // oU = contour de la lèvre supérieure (extérieur + intérieur)
+  // oL = contour de la lèvre inférieure (extérieur + intérieur)
+  // Points clés : 13 = milieu entre les 2 lèvres, 61/291 = coins
+  // ========================================================
+  const oU = [61,185,40,39,37,0,267,269,270,409,291,308,415,310,311,312,13,82,81,80,191,78,61];
+  const oL = [61,146,91,181,84,17,314,405,321,375,291,308,324,318,402,317,14,87,178,88,95,78,61];
+
+  const lipCenter = pt(lm, 13, W, H);
+  const lipL      = pt(lm, 61, W, H);
+  const lipR      = pt(lm, 291, W, H);
+  const lipWidth  = Math.abs(lipR.x - lipL.x);
+
+  const style = currentLipStyle || 'glossy';
+
+  // ========================================================
+  // PARAMÈTRES PAR FINISH
+  // Chaque finish a ses propres valeurs de saturation, reflets,
+  // blur et points de lumière. C'est ce qui crée la différence
+  // visible entre un mat, un glossy et un metallic.
+  // ========================================================
+  const styleParams = {
+    matte: {
+      // Mat : opaque, sans reflet, micro-grain
+      baseOp:        m.op * 0.85 * toneAdj.opMultiplier, // ajusté ton de peau
+      lowerLightenR: 8,             // lèvre inférieure légèrement plus claire
+      lowerLightenG: 4,
+      lowerLightenB: 5,
+      shineOp:       0,             // PAS de reflet humide
+      shineSize:     0,
+      sideShineOp:   0,             // PAS de reflets latéraux
+      saturationBoost: 1.0 * toneAdj.satBoost, // ajusté ton de peau
+      blurAmount:    1.4,           // blur léger pour bords nets
+      grainNoise:    true,          // micro-grain pour texture mate
+    },
+    glossy: {
+      // Glossy : effet humide central, lèvre inférieure plus claire
+      baseOp:        m.op * 0.7 * toneAdj.opMultiplier,
+      lowerLightenR: 25,
+      lowerLightenG: 10,
+      lowerLightenB: 15,
+      shineOp:       0.18,          // reflet humide visible
+      shineSize:     0.22,
+      sideShineOp:   0.06,          // léger highlight latéral
+      saturationBoost: 1.0 * toneAdj.satBoost,
+      blurAmount:    2.2,           // blur moyen pour fondu naturel
+      grainNoise:    false,
+    },
+    metallic: {
+      // Metallic : reflets multiples, saturation boostée, micro-paillettes
+      baseOp:        m.op * 0.78 * toneAdj.opMultiplier,
+      lowerLightenR: 35,            // contraste fort haut/bas
+      lowerLightenG: 18,
+      lowerLightenB: 22,
+      shineOp:       0.32,          // reflet central fort
+      shineSize:     0.28,
+      sideShineOp:   0.18,          // reflets latéraux marqués
+      saturationBoost: 1.15 * toneAdj.satBoost, // metallic +15% × tone
+      blurAmount:    1.8,
+      grainNoise:    false,
+      shimmer:       true,          // points lumineux supplémentaires
+    },
+  };
+
+  const params = styleParams[style];
+
+  // Application du boost de saturation pour metallic
+  // (on déplace la couleur vers une teinte plus pure)
+  let r = rgb.r, g = rgb.g, b = rgb.b;
+  if (params.saturationBoost > 1) {
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const range = max - min;
+    if (range > 0) {
+      // On amplifie l'écart entre la couleur dominante et les autres
+      const boost = (params.saturationBoost - 1) * range;
+      r = Math.min(255, Math.max(0, r + (r === max ? boost : (r === min ? -boost : 0))));
+      g = Math.min(255, Math.max(0, g + (g === max ? boost : (g === min ? -boost : 0))));
+      b = Math.min(255, Math.max(0, b + (b === max ? boost : (b === min ? -boost : 0))));
+    }
+  }
+
+  const tc = resetTmpCanvas('lips', W, H);
+
+  // ========================================================
+  // COUCHE 1 — REMPLISSAGE LÈVRE SUPÉRIEURE
+  // ========================================================
+  tc.beginPath();
+  oU.forEach((idx, i) => {
+    const p = pt(lm, idx, W, H);
+    if (i === 0) tc.moveTo(p.x, p.y);
+    else tc.lineTo(p.x, p.y);
+  });
+  tc.closePath();
+  tc.fillStyle = `rgba(${r},${g},${b},${params.baseOp})`;
+  tc.fill();
+
+  // ========================================================
+  // COUCHE 2 — REMPLISSAGE LÈVRE INFÉRIEURE
+  // (légèrement plus claire pour donner du volume 3D)
+  // ========================================================
+  tc.beginPath();
+  oL.forEach((idx, i) => {
+    const p = pt(lm, idx, W, H);
+    if (i === 0) tc.moveTo(p.x, p.y);
+    else tc.lineTo(p.x, p.y);
+  });
+  tc.closePath();
+  const lowerR = Math.min(r + params.lowerLightenR, 255);
+  const lowerG = Math.min(g + params.lowerLightenG, 255);
+  const lowerB = Math.min(b + params.lowerLightenB, 255);
+  tc.fillStyle = `rgba(${lowerR},${lowerG},${lowerB},${params.baseOp})`;
+  tc.fill();
+
+  // ========================================================
+  // COUCHE 3 — REFLET HUMIDE CENTRAL (glossy + metallic)
+  // ========================================================
+  if (params.shineOp > 0) {
+    // Reflet sur la lèvre INFÉRIEURE (c'est là que la lumière rebondit)
+    const lowerCenter = pt(lm, 17, W, H); // milieu lèvre inférieure
+    const shineGrad = tc.createRadialGradient(
+      lowerCenter.x, lowerCenter.y - 2, 0,
+      lowerCenter.x, lowerCenter.y - 2, lipWidth * params.shineSize
+    );
+    shineGrad.addColorStop(0,    `rgba(255,255,255,${params.shineOp})`);
+    shineGrad.addColorStop(0.5,  `rgba(255,255,255,${params.shineOp * 0.4})`);
+    shineGrad.addColorStop(1,    'rgba(255,255,255,0)');
+
+    tc.beginPath();
+    oL.forEach((idx, i) => {
+      const p = pt(lm, idx, W, H);
+      if (i === 0) tc.moveTo(p.x, p.y);
+      else tc.lineTo(p.x, p.y);
+    });
+    tc.closePath();
+    tc.fillStyle = shineGrad;
+    tc.fill();
+  }
+
+  // ========================================================
+  // COUCHE 4 — REFLETS LATÉRAUX (metallic uniquement)
+  // ========================================================
+  if (params.sideShineOp > 0) {
+    // 2 petits reflets sur les "monts" de la lèvre supérieure
+    // (l'arc de Cupidon a 2 sommets)
+    const cupidL = pt(lm, 39, W, H);
+    const cupidR = pt(lm, 269, W, H);
+
+    [cupidL, cupidR].forEach(cupid => {
+      const sideGrad = tc.createRadialGradient(
+        cupid.x, cupid.y, 0,
+        cupid.x, cupid.y, lipWidth * 0.08
+      );
+      sideGrad.addColorStop(0, `rgba(255,255,255,${params.sideShineOp})`);
+      sideGrad.addColorStop(1, 'rgba(255,255,255,0)');
+      tc.fillStyle = sideGrad;
+      tc.beginPath();
+      tc.arc(cupid.x, cupid.y, lipWidth * 0.08, 0, Math.PI * 2);
+      tc.fill();
+    });
+  }
+
+  // ========================================================
+  // COUCHE 5 — SHIMMER METALLIC (points lumineux)
+  // Simule les micro-particules réfléchissantes des lipsticks metallic
+  // ========================================================
+  if (params.shimmer) {
+    // 8 petits points lumineux répartis sur les lèvres
+    // Position pseudo-aléatoire mais déterministe (pour stabilité visuelle)
+    const shimmerCount = 12;
+    for (let i = 0; i < shimmerCount; i++) {
+      // Distribution sur la largeur des lèvres
+      const t = (i / (shimmerCount - 1));
+      const x = lipL.x + (lipR.x - lipL.x) * t;
+      // Position verticale alternée entre lèvre haute et basse
+      const isUpper = i % 2 === 0;
+      const baseY = isUpper ? lipCenter.y - 3 : lipCenter.y + 3;
+      const y = baseY + Math.sin(i * 4.7) * 2;
+
+      // Petit point blanc translucide
+      const radius = 0.8 + (Math.sin(i * 7.3) + 1) * 0.6;
+      tc.beginPath();
+      tc.arc(x, y, radius, 0, Math.PI * 2);
+      tc.fillStyle = `rgba(255,255,255,${0.4 + Math.sin(i * 11.1) * 0.2})`;
+      tc.fill();
+    }
+  }
+
+  // ========================================================
+  // COUCHE 6 — MICRO-GRAIN (matte uniquement)
+  // Simule la texture poudrée des rouges à lèvres mats
+  // ========================================================
+  if (params.grainNoise) {
+    // On ajoute un voile très léger de variations aléatoires
+    // pour casser l'aspect "plat" et donner une texture poudrée
+    tc.save();
+    tc.globalCompositeOperation = 'multiply';
+    tc.globalAlpha = 0.08;
+    for (let i = 0; i < 40; i++) {
+      const px = lipL.x + (lipR.x - lipL.x) * Math.random();
+      const py = lipCenter.y - 4 + Math.random() * 12;
+      tc.fillStyle = Math.random() > 0.5 ? '#000' : '#fff';
+      tc.fillRect(px, py, 1, 1);
+    }
+    tc.restore();
+  }
+
+  // ========================================================
+  // APPLICATION FINALE — blur ajusté selon le finish
+  // ========================================================
+  ctx.save();
+  ctx.filter = `blur(${params.blurAmount}px)`;
+  ctx.drawImage(tmpCanvases.lips, 0, 0);
+  ctx.filter = 'none';
+  ctx.restore();
+}
+
+/** Yeux : ombre à paupières en dégradé */
+function applyEyes(lm, W, H) {
+  const m = makeup.eyes;
+  if (!m || !m.c) return;
+  const rgb = hexToRgb(m.c);
+
+  // Tone matching
+  const toneAdj = getToneAdjustments('eyes');
+  const opMul = toneAdj.opMultiplier;
+
+  // ========================================================
+  // ANATOMIE DES YEUX DANS MEDIAPIPE FACEMESH
+  // --------------------------------------------------------
+  // MediaPipe nous donne plusieurs anneaux de landmarks :
+  //  - Ras de cils supérieur (juste au-dessus de l'œil ouvert)
+  //  - Pli de paupière (la cassure naturelle)
+  //  - Sous-sourcil (entre le pli et le sourcil)
+  //
+  // En empilant ces zones, on obtient les 3 zones que les
+  // maquilleurs utilisent : paupière mobile / pli / sous-sourcil.
+  // ========================================================
+
+  // Œil GAUCHE (côté gauche du visage = côté droit du spectateur)
+  const eyeL = {
+    // Ras de cils supérieur (de l'angle interne vers l'angle externe)
+    upperLash: [33, 246, 161, 160, 159, 158, 157, 173, 133],
+    // Pli de paupière (un peu au-dessus du ras de cils)
+    crease:    [247, 30, 29, 27, 28, 56, 190],
+    // Sous-sourcil (zone haute, près du sourcil)
+    browLow:   [70, 63, 105, 66, 107],
+    // Coin interne et externe (pour les angles)
+    innerCorner: 33,
+    outerCorner: 133,
+  };
+
+  // Œil DROIT
+  const eyeR = {
+    upperLash: [263, 466, 388, 387, 386, 385, 384, 398, 362],
+    crease:    [467, 260, 259, 257, 258, 286, 414],
+    browLow:   [336, 296, 334, 293, 300],
+    innerCorner: 263,
+    outerCorner: 362,
+  };
+
+  const style = currentEyeStyle || 'natural';
+
+  // Paramètres par style — densité, intensité, tailles
+  const styleParams = {
+    natural: {
+      shadowOp:    0.45,  // intensité ombre globale
+      mobileOp:    0.55,  // paupière mobile (zone la plus saturée)
+      creaseOp:    0.35,  // pli (intermédiaire)
+      browLowOp:   0.10,  // sous-sourcil (très diffus)
+      linerWidth:  1.0,   // épaisseur eyeliner en px
+      linerOp:     0.55,  // intensité eyeliner
+      linerColor:  '#1A1A1A', // eyeliner toujours sombre
+      mascaraOp:   0.35,  // intensité zone cils
+      mascaraSize: 4,     // épaisseur de la zone mascara en px
+      blurAmount:  2.5,   // blur de l'ombre (fondu naturel)
+    },
+    defined: {
+      shadowOp:    0.60,
+      mobileOp:    0.70,
+      creaseOp:    0.50,
+      browLowOp:   0.15,
+      linerWidth:  1.6,
+      linerOp:     0.85,
+      linerColor:  '#0A0A0A',
+      mascaraOp:   0.55,
+      mascaraSize: 5,
+      blurAmount:  1.8,
+    },
+    smoky: {
+      shadowOp:    0.85,
+      mobileOp:    0.90,
+      creaseOp:    0.75,
+      browLowOp:   0.30,
+      linerWidth:  2.2,
+      linerOp:     0.95,
+      linerColor:  '#000000',
+      mascaraOp:   0.75,
+      mascaraSize: 7,
+      blurAmount:  3.5, // plus de blur pour fondu enfumé
+    },
+  };
+
+  const params = styleParams[style];
+
+  // ========================================================
+  // COUCHE 1 — OMBRE À PAUPIÈRE EN 3 ZONES
+  // ========================================================
+  const tcShadow = resetTmpCanvas('eyes', W, H);
+
+  [eyeL, eyeR].forEach(eye => {
+    const lashPts   = eye.upperLash.map(i => pt(lm, i, W, H));
+    const creasePts = eye.crease.map(i => pt(lm, i, W, H));
+    const browPts   = eye.browLow.map(i => pt(lm, i, W, H));
+
+    // ZONE 1 : Paupière mobile
+    // Polygone fermé entre ras de cils et pli
+    tcShadow.beginPath();
+    lashPts.forEach((p, i) => {
+      if (i === 0) tcShadow.moveTo(p.x, p.y);
+      else tcShadow.lineTo(p.x, p.y);
+    });
+    [...creasePts].reverse().forEach(p => tcShadow.lineTo(p.x, p.y));
+    tcShadow.closePath();
+    tcShadow.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * params.mobileOp * opMul})`;
+    tcShadow.fill();
+
+    // ZONE 2 : Pli
+    // Polygone entre pli et zone basse du sourcil
+    // (pour le smoky, on saute légèrement vers le haut)
+    tcShadow.beginPath();
+    creasePts.forEach((p, i) => {
+      if (i === 0) tcShadow.moveTo(p.x, p.y);
+      else tcShadow.lineTo(p.x, p.y);
+    });
+    // Point intermédiaire entre pli et sourcil pour le pli
+    const midPts = creasePts.map((cp, i) => {
+      const bp = browPts[Math.min(i, browPts.length - 1)];
+      return { x: (cp.x + bp.x) / 2, y: (cp.y + bp.y) / 2 + (cp.y - bp.y) * 0.3 };
+    });
+    [...midPts].reverse().forEach(p => tcShadow.lineTo(p.x, p.y));
+    tcShadow.closePath();
+    tcShadow.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * params.creaseOp * opMul})`;
+    tcShadow.fill();
+
+    // ZONE 3 : Sous-sourcil (très diffuse)
+    // Pour les styles natural/defined, c'est très léger
+    // Pour smoky, ça crée le halo sombre étendu
+    tcShadow.beginPath();
+    midPts.forEach((p, i) => {
+      if (i === 0) tcShadow.moveTo(p.x, p.y);
+      else tcShadow.lineTo(p.x, p.y);
+    });
+    [...browPts].reverse().forEach(p => tcShadow.lineTo(p.x, p.y));
+    tcShadow.closePath();
+    tcShadow.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * params.browLowOp * opMul})`;
+    tcShadow.fill();
+  });
+
+  // Application de l'ombre avec blur (fondu naturel)
+  ctx.save();
+  ctx.filter = `blur(${params.blurAmount}px)`;
+  ctx.drawImage(tmpCanvases.eyes, 0, 0);
+  ctx.filter = 'none';
+  ctx.restore();
+
+  // ========================================================
+  // COUCHE 2 — EYELINER (ligne fine sur le ras de cils)
+  // ========================================================
+  // Désactivé par défaut, activable via le toggle dans le panel "Style yeux"
+  // ========================================================
+  if (eyelinerEnabled) {
+  const tcLiner = resetTmpCanvas('eyeliner', W, H);
+  const linerRgb = hexToRgb(params.linerColor);
+
+  [eyeL, eyeR].forEach(eye => {
+    // Sous-échantillonnage : on garde 5 points stratégiques (1, 3, 5, 7, 9 sur 9)
+    // Les points intermédiaires sont les plus sujets au jitter
+    const allPts = eye.upperLash.map(i => pt(lm, i, W, H));
+    const lashPts = [allPts[0], allPts[2], allPts[4], allPts[6], allPts[8]];
+
+    // Tracé avec courbes de Bezier cubiques (plus lisse que quadratique)
+    const drawSmoothCurve = (ctxToUse) => {
+      ctxToUse.beginPath();
+      ctxToUse.moveTo(lashPts[0].x, lashPts[0].y);
+      for (let i = 0; i < lashPts.length - 1; i++) {
+        const p0 = lashPts[Math.max(0, i - 1)];
+        const p1 = lashPts[i];
+        const p2 = lashPts[i + 1];
+        const p3 = lashPts[Math.min(lashPts.length - 1, i + 2)];
+
+        // Points de contrôle Catmull-Rom → Bezier
+        const cp1x = p1.x + (p2.x - p0.x) / 6;
+        const cp1y = p1.y + (p2.y - p0.y) / 6;
+        const cp2x = p2.x - (p3.x - p1.x) / 6;
+        const cp2y = p2.y - (p3.y - p1.y) / 6;
+
+        ctxToUse.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+      }
+    };
+
+    // Couche 1 : trait épais semi-transparent (masque le jitter)
+    drawSmoothCurve(tcLiner);
+    tcLiner.strokeStyle = `rgba(${linerRgb.r},${linerRgb.g},${linerRgb.b},${params.linerOp * 0.5})`;
+    tcLiner.lineWidth = params.linerWidth * 2.2;
+    tcLiner.lineCap = 'round';
+    tcLiner.lineJoin = 'round';
+    tcLiner.stroke();
+
+    // Couche 2 : trait fin opaque (définition)
+    drawSmoothCurve(tcLiner);
+    tcLiner.strokeStyle = `rgba(${linerRgb.r},${linerRgb.g},${linerRgb.b},${params.linerOp})`;
+    tcLiner.lineWidth = params.linerWidth;
+    tcLiner.stroke();
+  });
+
+  // Application avec blur léger pour adoucir les bords (sans flouter le trait)
+  ctx.save();
+  ctx.filter = 'blur(0.6px)';
+  ctx.drawImage(tmpCanvases.eyeliner, 0, 0);
+  ctx.filter = 'none';
+  ctx.restore();
+  } // fin if (eyelinerEnabled)
+
+  // ========================================================
+  // (Mascara retiré : créait un trait visible non désiré sur mobile.
+  //  Seule l'ombre à paupière reste pour un rendu naturel.)
+  // ========================================================
+}
+
+/** Blush : 2 zones diffuses sur les pommettes */
+function applyBlush(lm, W, H) {
+  const m = makeup.blush;
+  if (!m || !m.c) return;
+  const rgb = hexToRgb(m.c);
+
+  const toneAdj = getToneAdjustments('blush');
+  const opMul = toneAdj.opMultiplier;
+
+  // Points de référence anatomiques pour calculer position + direction
+  const cheekboneL = pt(lm, 234, W, H); // tempe gauche (point externe)
+  const cheekboneR = pt(lm, 454, W, H); // tempe droite
+  const cheekCenterL = pt(lm, 117, W, H); // pommette gauche centrale
+  const cheekCenterR = pt(lm, 346, W, H); // pommette droite centrale
+  const noseTip = pt(lm, 1, W, H);
+
+  // Largeur de référence pour scaler le blush proportionnellement au visage
+  const faceWidth = Math.abs(cheekboneR.x - cheekboneL.x);
+
+  const cheeks = [
+    {
+      center: cheekCenterL,
+      temple: cheekboneL,
+      side: 'left',
+    },
+    {
+      center: cheekCenterR,
+      temple: cheekboneR,
+      side: 'right',
+    },
+  ];
+
+  cheeks.forEach(({ center, temple, side }) => {
+    // Cœur saturé : entre la pommette et la tempe (33% vers la tempe)
+    const cx = center.x + (temple.x - center.x) * 0.33;
+    const cy = center.y + (temple.y - center.y) * 0.33;
+
+    // Direction du blush : angle entre pommette et tempe
+    // C'est cette rotation qui donne l'effet "lifté" naturel
+    const angle = Math.atan2(temple.y - center.y, temple.x - center.x);
+
+    // Dimensions oblongues
+    const radiusX = faceWidth * 0.16; // longueur (vers la tempe)
+    const radiusY = faceWidth * 0.09; // largeur (perpendiculaire)
+
+    // Gradient avec cœur saturé qui se dilue vers les bords
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radiusX);
+    grad.addColorStop(0,    `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.45 * opMul})`);
+    grad.addColorStop(0.35, `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.25 * opMul})`);
+    grad.addColorStop(0.7,  `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.10 * opMul})`);
+    grad.addColorStop(1,    'rgba(0,0,0,0)');
+
+    ctx.save();
+    ctx.filter = 'blur(8px)'; // blur plus fort pour fondu très diffus
+    ctx.translate(cx, cy);
+    ctx.rotate(angle); // rotation vers la tempe = effet lifté
+    ctx.translate(-cx, -cy);
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, radiusX, radiusY, 0, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.filter = 'none';
+    ctx.restore();
+  });
+}
+
+/** Sourcils : ligne fine + halo doux */
+function applyBrows(lm, W, H) {
+  const m = makeup.brows;
+  if (!m || !m.c) return;
+  const rgb = hexToRgb(m.c);
+
+  // ========================================================
+  // ANATOMIE DU SOURCIL DANS MEDIAPIPE FACEMESH
+  // --------------------------------------------------------
+  // MediaPipe nous donne 2 lignes de landmarks par sourcil :
+  //  - LIGNE DU HAUT : suit le bord supérieur du sourcil
+  //  - LIGNE DU BAS  : suit le bord inférieur (proche de la paupière)
+  //
+  // En reliant les 2 lignes, on obtient un POLYGONE FERMÉ qui
+  // épouse la forme réelle du sourcil — pas juste une ligne.
+  // C'est ça le grand changement vs la v1.
+  // ========================================================
+
+  // Sourcil GAUCHE (côté gauche du visage = œil droit du spectateur)
+  // Du bord externe (tempe) vers le bord interne (nez)
+  const browL_top    = [70, 63, 105, 66, 107];   // bord supérieur
+  const browL_bottom = [46, 53, 52, 65, 55];     // bord inférieur (du même côté)
+
+  // Sourcil DROIT
+  const browR_top    = [336, 296, 334, 293, 300]; // bord supérieur
+  const browR_bottom = [285, 295, 282, 283, 276]; // bord inférieur
+
+  // Style de sourcil sélectionné (Naturel / Défini / Brossé)
+  const style = currentBrowStyle || 'natural';
+
+  [
+    { topIdx: browL_top, botIdx: browL_bottom, name: 'browL', side: 'left' },
+    { topIdx: browR_top, botIdx: browR_bottom, name: 'browR', side: 'right' },
+  ].forEach(({ topIdx, botIdx, name, side }) => {
+    const topPts = topIdx.map(i => pt(lm, i, W, H));
+    const botPts = botIdx.map(i => pt(lm, i, W, H));
+    const tc = resetTmpCanvas(name, W, H);
+
+    // ======================================================
+    // COUCHE 1 — FORME REMPLIE
+    // On dessine le polygone fermé : top de gauche à droite,
+    // puis bottom de droite à gauche → polygone fermé
+    // ======================================================
+    tc.beginPath();
+    topPts.forEach((p, i) => {
+      if (i === 0) tc.moveTo(p.x, p.y);
+      else tc.lineTo(p.x, p.y);
+    });
+    // Retour par le bas (sens inverse pour fermer correctement)
+    [...botPts].reverse().forEach(p => tc.lineTo(p.x, p.y));
+    tc.closePath();
+
+    // Densité de remplissage selon le style choisi
+    const fillOpacity = {
+      natural: m.op * 0.35,  // remplissage léger, garde un côté naturel
+      defined: m.op * 0.65,  // remplissage marqué (style pommade)
+      brushed: m.op * 0.18,  // remplissage très léger, on verra surtout les poils
+    }[style];
+
+    tc.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${fillOpacity})`;
+    tc.fill();
+
+    // ======================================================
+    // COUCHE 2 — TEXTURE DE POILS
+    // On simule des petits poils orientés : chaque poil part
+    // du bord inférieur et monte légèrement vers l'extérieur,
+    // suivant la direction naturelle des poils du sourcil.
+    // ======================================================
+    const hairCount = {
+      natural: 14,   // densité moyenne
+      defined: 10,   // peu de poils visibles (le remplissage masque)
+      brushed: 22,   // beaucoup de poils, c'est le style
+    }[style];
+
+    const hairOpacity = {
+      natural: m.op * 0.55,
+      defined: m.op * 0.4,
+      brushed: m.op * 0.75,
+    }[style];
+
+    // Direction des poils : sur sourcil gauche, les poils s'orientent
+    // de haut-droite vers bas-gauche (croissance naturelle)
+    // Sur sourcil droit : haut-gauche vers bas-droite
+    const hairAngle = side === 'left' ? -25 : 25; // degrés
+
+    tc.strokeStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${hairOpacity})`;
+    tc.lineWidth = 0.8;
+    tc.lineCap = 'round';
+
+    // On répartit les poils le long du sourcil
+    for (let i = 0; i < hairCount; i++) {
+      const t = i / (hairCount - 1); // 0 à 1, position le long du sourcil
+
+      // Interpolation linéaire entre les points du bord supérieur
+      const segIdx = Math.min(Math.floor(t * (topPts.length - 1)), topPts.length - 2);
+      const segT = (t * (topPts.length - 1)) - segIdx;
+
+      const topX = topPts[segIdx].x + (topPts[segIdx + 1].x - topPts[segIdx].x) * segT;
+      const topY = topPts[segIdx].y + (topPts[segIdx + 1].y - topPts[segIdx].y) * segT;
+
+      const botX = botPts[segIdx].x + (botPts[segIdx + 1].x - botPts[segIdx].x) * segT;
+      const botY = botPts[segIdx].y + (botPts[segIdx + 1].y - botPts[segIdx].y) * segT;
+
+      // Hauteur du poil (~80% de l'épaisseur du sourcil à cet endroit)
+      const hairHeight = Math.hypot(topX - botX, topY - botY) * 0.85;
+
+      // Petite variation aléatoire pseudo-déterministe (basée sur i)
+      // pour que les poils ne soient pas tous identiques
+      const variation = (Math.sin(i * 7.3) + 1) * 0.5; // 0 à 1
+      const lengthMod = 0.7 + variation * 0.4; // 0.7 à 1.1
+
+      // Point de départ du poil : sur le bord inférieur, légèrement varié
+      const startX = botX + (Math.cos(i * 13.7) * 0.5);
+      const startY = botY;
+
+      // Point d'arrivée : vers le haut, avec angle de croissance naturelle
+      const angleRad = (hairAngle * Math.PI) / 180;
+      const endX = startX + Math.sin(angleRad) * hairHeight * lengthMod * 0.3;
+      const endY = startY - hairHeight * lengthMod;
+
+      tc.beginPath();
+      tc.moveTo(startX, startY);
+      tc.lineTo(endX, endY);
+      tc.stroke();
+    }
+
+    // ======================================================
+    // COUCHE 3 — APPLICATION SUR LE CANVAS PRINCIPAL
+    // Avec un blur léger qui dépend du style choisi
+    // ======================================================
+    const blurAmount = {
+      natural: 1.2,  // blur moyen pour fondu naturel
+      defined: 0.6,  // peu de blur, contours nets
+      brushed: 1.5,  // plus de blur, effet "duveteux"
+    }[style];
+
+    ctx.save();
+    ctx.filter = `blur(${blurAmount}px)`;
+    ctx.drawImage(tmpCanvases[name], 0, 0);
+    ctx.filter = 'none';
+    ctx.restore();
+  });
+}
+
+/** Highlight : points hauts du visage (pommettes, arête nez) */
+function applyHighlight(lm, W, H) {
+  const m = makeup.highlight;
+  if (!m || !m.c || m.op < 0.05) return;
+  const rgb = hexToRgb(m.c);
+
+  const toneAdj = getToneAdjustments('highlight');
+  const opMul = toneAdj.opMultiplier;
+
+  // Référence largeur visage pour scaler proportionnellement
+  const faceL = pt(lm, 234, W, H);
+  const faceR = pt(lm, 454, W, H);
+  const faceWidth = Math.abs(faceR.x - faceL.x);
+  const scale = faceWidth / 280; // 280 = largeur de référence
+
+  // 6 points stratégiques d'un highlight pro :
+  // 1-2. Pommettes (les plus saturés)
+  // 3.   Arête du nez (vertical fin)
+  // 4.   Pointe du nez (petit point)
+  // 5.   Arc de Cupidon (au-dessus de la lèvre supérieure)
+  // 6.   Menton (subtil, finition)
+  const points = [
+    // Pommettes — zone large oblongue
+    { pt: pt(lm, 116, W, H), rx: 22 * scale, ry: 14 * scale, intensity: 1.0,  rotate: -0.15 },
+    { pt: pt(lm, 345, W, H), rx: 22 * scale, ry: 14 * scale, intensity: 1.0,  rotate: 0.15  },
+    // Arête du nez — vertical fin
+    { pt: pt(lm, 6,   W, H), rx: 6  * scale, ry: 26 * scale, intensity: 0.85, rotate: 0     },
+    // Pointe du nez — petit point lumineux
+    { pt: pt(lm, 4,   W, H), rx: 5  * scale, ry: 5  * scale, intensity: 0.6,  rotate: 0     },
+    // Arc de Cupidon — petit ovale horizontal
+    { pt: pt(lm, 164, W, H), rx: 7  * scale, ry: 4  * scale, intensity: 0.55, rotate: 0     },
+    // Menton — subtil pour finition
+    { pt: pt(lm, 200, W, H), rx: 9  * scale, ry: 6  * scale, intensity: 0.4,  rotate: 0     },
+  ];
+
+  points.forEach(({ pt: center, rx, ry, intensity, rotate }) => {
+    const grad = ctx.createRadialGradient(
+      center.x, center.y, 0,
+      center.x, center.y, Math.max(rx, ry)
+    );
+    // Cœur très lumineux qui se dilue rapidement
+    grad.addColorStop(0,    `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.55 * intensity * opMul})`);
+    grad.addColorStop(0.4,  `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.25 * intensity * opMul})`);
+    grad.addColorStop(0.75, `rgba(${rgb.r},${rgb.g},${rgb.b},${m.op * 0.08 * intensity * opMul})`);
+    grad.addColorStop(1,    'rgba(0,0,0,0)');
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.filter = 'blur(2.5px)';
+    if (rotate !== 0) {
+      ctx.translate(center.x, center.y);
+      ctx.rotate(rotate);
+      ctx.translate(-center.x, -center.y);
+    }
+    ctx.beginPath();
+    ctx.ellipse(center.x, center.y, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.filter = 'none';
+    ctx.restore();
+  });
+
+  // Shimmer : 5 micro-points lumineux sur les pommettes pour effet "scintillant"
+  // Position pseudo-aléatoire mais déterministe (stabilité visuelle)
+  const cheekPoints = [pt(lm, 116, W, H), pt(lm, 345, W, H)];
+  cheekPoints.forEach((cheek, idx) => {
+    const baseSeed = idx * 17.3;
+    for (let i = 0; i < 5; i++) {
+      const seed = baseSeed + i * 4.7;
+      const offsetX = Math.sin(seed) * 12 * scale;
+      const offsetY = Math.cos(seed * 1.3) * 7 * scale;
+      const radius = (0.6 + Math.abs(Math.sin(seed * 2.1)) * 1.2) * scale;
+      const sparkleOp = (0.35 + Math.abs(Math.cos(seed * 3.1)) * 0.3) * m.op * opMul;
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.beginPath();
+      ctx.arc(cheek.x + offsetX, cheek.y + offsetY, radius, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${sparkleOp})`;
+      ctx.fill();
+      ctx.restore();
+    }
+  });
+}
+
+// ============================================================
+// INITIALISATION
+// ============================================================
+
+// Boutons d'activation/réessai
+startBtn.addEventListener('click', startCamera);
+retryBtn.addEventListener('click', () => {
+  resetCameraOverlay();
+  startCamera();
+});
+
+// Premier rendu de l'UI (panel)
+renderSwatches();
+renderLooks();
+updateProduct();
+</script>
+</body>
+</html>
