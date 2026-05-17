@@ -1321,10 +1321,11 @@ input[type=range]::-moz-range-thumb {
 
   /* Sur mobile, on cadre la vidéo plus haut pour que le visage soit
      visible au-dessus du panel (sinon il est centré et caché par le panel).
-     object-position 50% 25% = centré horizontalement, 25% depuis le haut
-     (le visage est en général dans le tiers supérieur du frame vidéo). */
+     object-position 50% 45% = centré horizontalement, 45% depuis le haut
+     (cadrage milieu-haut pour voir le visage entier sans trop zoomer
+     sur le front). Ajusté de 30% → 45% selon retour Samuel v3.13.5. */
   #video, #outputCanvas, #webglCanvas, #photoView {
-    object-position: 50% 30%;
+    object-position: 50% 45%;
   }
 
   /* CORRECTION E1.1 : cam-overlay (écran d'accueil avant activation cam)
