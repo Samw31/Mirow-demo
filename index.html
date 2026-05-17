@@ -1194,18 +1194,76 @@ input[type=range]::-moz-range-thumb {
 }
 
 /* Responsive : tablette + mobile */
-@media (max-width: 900px) {
-  .panel { width: 280px; }
-}
-@media (max-width: 640px) {
-  .main { flex-direction: column; }
-  .panel {
+/* ============================================================
+   RESPONSIVE LAYOUT
+   ============================================================ */
+
+/* Desktop (> 1024px) : layout horizontal classique cam + panel à droite */
+
+/* Tablette + Mobile (< 1024px) : caméra plein écran + panel overlay */
+@media (max-width: 1023px) {
+  /* L'app passe en position relative + occupe tout le viewport */
+  .app {
+    height: 100vh;
+    height: 100dvh; /* dynamic viewport height pour iOS Safari */
+    overflow: hidden;
+  }
+
+  /* La topbar reste en haut mais en absolu pour ne pas voler de la hauteur */
+  .topbar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    z-index: 50;
+    background: rgba(9, 9, 15, 0.65);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 0.5px solid rgba(255, 255, 255, 0.08);
+  }
+
+  /* Le main prend tout l'espace, sans flex horizontal */
+  .main {
+    flex-direction: column;
+    height: 100%;
+    height: 100dvh;
+    gap: 0;
+    position: relative;
+  }
+
+  /* La cam-area prend 100% du viewport (par-dessous le panel overlay) */
+  .cam-area {
+    position: absolute;
+    inset: 0;
     width: 100%;
-    max-height: none;
+    height: 100%;
+    min-height: 0;
+  }
+
+  /* Le panel devient un overlay en bas, par-dessus la caméra */
+  .panel {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-height: 55vh; /* limite haute en mode collapsed E1 */
+    max-height: 55dvh;
     border-left: none;
     border-top: 0.5px solid var(--border);
+    background: rgba(9, 9, 15, 0.92); /* légèrement transparent pour voir cam en transparence */
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    z-index: 20;
+    /* À E1 : pas de drag, juste cette hauteur fixe */
   }
-  .cam-area { min-height: 320px; height: 50vh; }
+
+  /* Safe area iOS (notch, home indicator) */
+  .panel {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+}
+
+/* Mobile spécifique (< 640px) : ajustements supplémentaires */
+@media (max-width: 640px) {
   .swatch-grid { grid-template-columns: repeat(8, 1fr); }
 }
 
