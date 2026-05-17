@@ -2621,18 +2621,25 @@ let workerBusy = false;          // true quand une frame est en cours dans le wo
 let workerFrameId = 0;           // compteur de frames envoyées au worker
 
 // Code source du Worker (Blob inline pour rester dans index.html)
-// ÉTAPE D2a : applyHighlight migré dans le worker
+// ÉTAPE D2b.1 : applyLips couches 0-2 (SSS + remplissages) migré dans le worker
 const WORKER_SOURCE = `
 // ============================================================
 // MIROW RENDER WORKER
 // ============================================================
-// État D2a : applyHighlight tourne ici.
-// Le worker reçoit { landmarks, makeupHighlight, detectedTone, W, H }
-// et renvoie un ImageBitmap transférable.
+// État D2b.1 :
+//   - applyHighlight tourne ici (D2a)
+//   - applyLips couches 0-2 tournent ici (SSS + remplissages)
+//   - Couches 3-7 restent main thread pour cette sous-étape
+//
+// Le worker reçoit { landmarks, makeupHighlight, makeupLips,
+// currentLipStyle, jawOpen, detectedTone, W, H }.
+// Il dessine et renvoie un ImageBitmap transférable.
 // ============================================================
 
-let offscreen = null;  // OffscreenCanvas (sera créé au premier renderFrame)
+let offscreen = null;  // OffscreenCanvas
 let octx = null;       // contexte 2d
+let lipsCanvas = null; // OffscreenCanvas temporaire pour applyLips (équivalent tmpCanvases.lips)
+let lipsCtx = null;
 
 // --- HELPERS (copiés du main thread) ---
 function hexToRgb(hex) {
@@ -2656,11 +2663,17 @@ function getToneAdjustments(category, detectedTone) {
       'medium':     { opMultiplier: 1.15, satBoost: 1.0 },
       'deep':       { opMultiplier: 1.30, satBoost: 1.0 },
     },
+    lips: {
+      'very-light': { opMultiplier: 1.0,  satBoost: 1.0  },
+      'light':      { opMultiplier: 1.0,  satBoost: 1.0  },
+      'medium':     { opMultiplier: 1.05, satBoost: 1.05 },
+      'deep':       { opMultiplier: 1.15, satBoost: 1.10 },
+    },
   };
   return adjustments[category]?.[detectedTone] || { opMultiplier: 1.0, satBoost: 1.0 };
 }
 
-// --- RENDU HIGHLIGHT (copié de applyHighlight main thread) ---
+// --- RENDU HIGHLIGHT ---
 function renderHighlight(ctx, lm, W, H, makeupHighlight, detectedTone) {
   const m = makeupHighlight;
   if (!m || !m.c || m.op < 0.05) return;
@@ -2709,6 +2722,259 @@ function renderHighlight(ctx, lm, W, H, makeupHighlight, detectedTone) {
   });
 }
 
+// --- RENDU LÈVRES (D2b.1 - couches 0-2 uniquement) ---
+function renderLips(ctx, lm, W, H, makeupLips, currentLipStyle, jawOpen, detectedTone) {
+  const m = makeupLips;
+  if (!m || !m.c) return;
+  const rgb = hexToRgb(m.c);
+
+  // Recalibrage intensité (courbe puissance 1.8)
+  const mLips = { c: m.c, op: Math.pow(m.op, 1.8) };
+
+  // Tone matching
+  const toneAdj = getToneAdjustments('lips', detectedTone);
+
+  // Anatomie
+  const oU = [61,185,40,39,37,0,267,269,270,409,291,308,415,310,311,312,13,82,81,80,191,78,61];
+  const oL = [61,146,91,181,84,17,314,405,321,375,291,308,324,318,402,317,14,87,178,88,95,78,61];
+
+  const lipCenter = pt(lm, 13, W, H);
+  const lipL      = pt(lm, 61, W, H);
+  const lipR      = pt(lm, 291, W, H);
+  const lipWidth  = Math.abs(lipR.x - lipL.x);
+
+  const style = currentLipStyle || 'glossy';
+
+  const styleParams = {
+    matte: {
+      baseOp:        Math.min(1.0, mLips.op * 0.65 * toneAdj.opMultiplier),
+      lowerLightenR: 8, lowerLightenG: 4, lowerLightenB: 5,
+      saturationBoost: 0.9 * toneAdj.satBoost,
+      blurAmount:    1.4,
+    },
+    glossy: {
+      baseOp:        Math.min(1.0, mLips.op * 0.55 * toneAdj.opMultiplier),
+      lowerLightenR: 25, lowerLightenG: 10, lowerLightenB: 15,
+      saturationBoost: 0.9 * toneAdj.satBoost,
+      blurAmount:    2.2,
+    },
+    metallic: {
+      baseOp:        mLips.op * 0.55 * toneAdj.opMultiplier,
+      lowerLightenR: 35, lowerLightenG: 18, lowerLightenB: 22,
+      saturationBoost: 1.05 * toneAdj.satBoost,
+      blurAmount:    2.2,
+    },
+  };
+
+  const params = styleParams[style];
+
+  // Anti-débordement bouche ouverte
+  let jawOpenFactor = 1.0;
+  if (typeof jawOpen === 'number' && jawOpen > 0.15) {
+    jawOpenFactor = Math.max(0.4, 1.0 - (jawOpen - 0.15) * 1.7);
+  }
+  params.baseOp *= jawOpenFactor;
+
+  // Saturation boost (metallic uniquement >1)
+  let r = rgb.r, g = rgb.g, b = rgb.b;
+  if (params.saturationBoost > 1) {
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const range = max - min;
+    if (range > 0) {
+      const boost = (params.saturationBoost - 1) * range;
+      r = Math.min(255, Math.max(0, r + (r === max ? boost : (r === min ? -boost : 0))));
+      g = Math.min(255, Math.max(0, g + (g === max ? boost : (g === min ? -boost : 0))));
+      b = Math.min(255, Math.max(0, b + (b === max ? boost : (b === min ? -boost : 0))));
+    }
+  }
+
+  // Initialiser le canvas temporaire pour les lèvres
+  if (!lipsCanvas) {
+    lipsCanvas = new OffscreenCanvas(W, H);
+    lipsCtx = lipsCanvas.getContext('2d');
+  } else if (lipsCanvas.width !== W || lipsCanvas.height !== H) {
+    lipsCanvas.width = W;
+    lipsCanvas.height = H;
+  }
+  lipsCtx.clearRect(0, 0, W, H);
+  const tc = lipsCtx;
+
+  // COUCHE 0 — Sub-surface scattering
+  const sssR = Math.min(255, Math.round(r * 1.05 + 28));
+  const sssG = Math.max(0,   Math.round(g * 0.85));
+  const sssB = Math.max(0,   Math.round(b * 0.85));
+  const sssIntensity = 0.18 * toneAdj.opMultiplier * jawOpenFactor;
+
+  tc.save();
+  tc.filter = 'blur(3px)';
+  tc.globalCompositeOperation = 'source-over';
+
+  const upperMidY = lipCenter.y - lipWidth * 0.04;
+  const upperTopY = lipCenter.y - lipWidth * 0.18;
+  tc.beginPath();
+  oU.forEach((idx, i) => {
+    const p = pt(lm, idx, W, H);
+    if (i === 0) tc.moveTo(p.x, p.y);
+    else tc.lineTo(p.x, p.y);
+  });
+  tc.closePath();
+  const upperGrad = tc.createLinearGradient(lipCenter.x, upperMidY, lipCenter.x, upperTopY);
+  upperGrad.addColorStop(0,   'rgba(' + sssR + ',' + sssG + ',' + sssB + ',' + sssIntensity + ')');
+  upperGrad.addColorStop(0.6, 'rgba(' + sssR + ',' + sssG + ',' + sssB + ',' + (sssIntensity * 0.3) + ')');
+  upperGrad.addColorStop(1,   'rgba(' + sssR + ',' + sssG + ',' + sssB + ',0)');
+  tc.fillStyle = upperGrad;
+  tc.fill();
+
+  const lowerMidY = lipCenter.y + lipWidth * 0.04;
+  const lowerBotY = lipCenter.y + lipWidth * 0.22;
+  tc.beginPath();
+  oL.forEach((idx, i) => {
+    const p = pt(lm, idx, W, H);
+    if (i === 0) tc.moveTo(p.x, p.y);
+    else tc.lineTo(p.x, p.y);
+  });
+  tc.closePath();
+  const lowerGrad = tc.createLinearGradient(lipCenter.x, lowerMidY, lipCenter.x, lowerBotY);
+  lowerGrad.addColorStop(0,   'rgba(' + sssR + ',' + sssG + ',' + sssB + ',' + sssIntensity + ')');
+  lowerGrad.addColorStop(0.6, 'rgba(' + sssR + ',' + sssG + ',' + sssB + ',' + (sssIntensity * 0.3) + ')');
+  lowerGrad.addColorStop(1,   'rgba(' + sssR + ',' + sssG + ',' + sssB + ',0)');
+  tc.fillStyle = lowerGrad;
+  tc.fill();
+
+  tc.filter = 'none';
+  tc.restore();
+
+  // COUCHE 1 — Remplissage lèvre supérieure
+  tc.beginPath();
+  oU.forEach((idx, i) => {
+    const p = pt(lm, idx, W, H);
+    if (i === 0) tc.moveTo(p.x, p.y);
+    else tc.lineTo(p.x, p.y);
+  });
+  tc.closePath();
+  tc.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + params.baseOp + ')';
+  tc.fill();
+
+  // COUCHE 2 — Remplissage lèvre inférieure (plus claire)
+  tc.beginPath();
+  oL.forEach((idx, i) => {
+    const p = pt(lm, idx, W, H);
+    if (i === 0) tc.moveTo(p.x, p.y);
+    else tc.lineTo(p.x, p.y);
+  });
+  tc.closePath();
+  const lowerR = Math.min(r + params.lowerLightenR, 255);
+  const lowerG = Math.min(g + params.lowerLightenG, 255);
+  const lowerB = Math.min(b + params.lowerLightenB, 255);
+  tc.fillStyle = 'rgba(' + lowerR + ',' + lowerG + ',' + lowerB + ',' + params.baseOp + ')';
+  tc.fill();
+
+  // PARAMS AVANCÉS (shine + sideShine + shimmer + grain) selon style
+  const advParams = {
+    matte:    { shineOp: 0, shineSize: 0, sideShineOp: 0, grainNoise: true,  shimmer: false },
+    glossy:   { shineOp: 0.22, shineSize: 0.24, sideShineOp: 0.08, grainNoise: false, shimmer: false },
+    metallic: { shineOp: 0.22, shineSize: 0.32, sideShineOp: 0.12, grainNoise: false, shimmer: true  },
+  }[style];
+
+  // Application du jawOpenFactor sur shineOp et sideShineOp
+  advParams.shineOp     *= jawOpenFactor;
+  advParams.sideShineOp *= jawOpenFactor;
+
+  // COUCHE 3 — Reflet humide central (glossy + metallic)
+  if (advParams.shineOp > 0) {
+    const lowerCenter = pt(lm, 17, W, H);
+    const shineGrad = tc.createRadialGradient(
+      lowerCenter.x, lowerCenter.y - 2, 0,
+      lowerCenter.x, lowerCenter.y - 2, lipWidth * advParams.shineSize
+    );
+    shineGrad.addColorStop(0,   'rgba(255,255,255,' + advParams.shineOp + ')');
+    shineGrad.addColorStop(0.5, 'rgba(255,255,255,' + (advParams.shineOp * 0.4) + ')');
+    shineGrad.addColorStop(1,   'rgba(255,255,255,0)');
+
+    tc.beginPath();
+    oL.forEach((idx, i) => {
+      const p = pt(lm, idx, W, H);
+      if (i === 0) tc.moveTo(p.x, p.y);
+      else tc.lineTo(p.x, p.y);
+    });
+    tc.closePath();
+    tc.fillStyle = shineGrad;
+    tc.fill();
+  }
+
+  // COUCHE 4 — Reflets latéraux (metallic uniquement)
+  if (advParams.sideShineOp > 0) {
+    const cupidL = pt(lm, 39, W, H);
+    const cupidR = pt(lm, 269, W, H);
+    [cupidL, cupidR].forEach(cupid => {
+      const sideGrad = tc.createRadialGradient(
+        cupid.x, cupid.y, 0,
+        cupid.x, cupid.y, lipWidth * 0.08
+      );
+      sideGrad.addColorStop(0, 'rgba(255,255,255,' + advParams.sideShineOp + ')');
+      sideGrad.addColorStop(1, 'rgba(255,255,255,0)');
+      tc.fillStyle = sideGrad;
+      tc.beginPath();
+      tc.arc(cupid.x, cupid.y, lipWidth * 0.08, 0, Math.PI * 2);
+      tc.fill();
+    });
+  }
+
+  // COUCHE 5 — Shimmer metallic (halos diffus)
+  if (advParams.shimmer) {
+    const shimmerCount = 6;
+    tc.save();
+    tc.filter = 'blur(2.5px)';
+    for (let i = 0; i < shimmerCount; i++) {
+      const t = (i / (shimmerCount - 1));
+      const x = lipL.x + (lipR.x - lipL.x) * t;
+      const isUpper = i % 2 === 0;
+      const baseY = isUpper ? lipCenter.y - 3 : lipCenter.y + 3;
+      const y = baseY + Math.sin(i * 4.7) * 2;
+      const radius = 3 + (Math.sin(i * 7.3) + 1) * 1.5;
+      const op = 0.15 + Math.abs(Math.sin(i * 11.1)) * 0.1;
+
+      const grad = tc.createRadialGradient(x, y, 0, x, y, radius);
+      grad.addColorStop(0,   'rgba(255,255,255,' + op + ')');
+      grad.addColorStop(0.6, 'rgba(255,255,255,' + (op * 0.3) + ')');
+      grad.addColorStop(1,   'rgba(255,255,255,0)');
+      tc.fillStyle = grad;
+      tc.beginPath();
+      tc.arc(x, y, radius, 0, Math.PI * 2);
+      tc.fill();
+    }
+    tc.filter = 'none';
+    tc.restore();
+  }
+
+  // COUCHE 6 — Micro-grain (matte uniquement)
+  if (advParams.grainNoise) {
+    tc.save();
+    tc.globalCompositeOperation = 'multiply';
+    tc.globalAlpha = 0.08;
+    for (let i = 0; i < 40; i++) {
+      const px = lipL.x + (lipR.x - lipL.x) * Math.random();
+      const py = lipCenter.y - 4 + Math.random() * 12;
+      tc.fillStyle = Math.random() > 0.5 ? '#000' : '#fff';
+      tc.fillRect(px, py, 1, 1);
+    }
+    tc.restore();
+  }
+
+  // Application finale sur le canvas principal du worker
+  ctx.save();
+  ctx.filter = 'blur(' + params.blurAmount + 'px)';
+  ctx.globalCompositeOperation = style === 'metallic' ? 'source-over' : 'multiply';
+  // Boost alpha pour multiply (compense l'assombrissement)
+  ctx.globalAlpha = style === 'metallic' ? 1.0 : 1.0;
+  ctx.drawImage(lipsCanvas, 0, 0);
+  ctx.filter = 'none';
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
 // --- MESSAGE HANDLER ---
 self.onmessage = function(e) {
   const msg = e.data;
@@ -2719,7 +2985,11 @@ self.onmessage = function(e) {
   }
 
   if (msg.type === 'renderFrame') {
-    const { landmarks, makeupHighlight, detectedTone, W, H, frameId } = msg;
+    const {
+      landmarks, makeupHighlight, makeupLips,
+      currentLipStyle, jawOpen, detectedTone,
+      W, H, frameId,
+    } = msg;
 
     // Initialiser ou redimensionner OffscreenCanvas si nécessaire
     if (!offscreen) {
@@ -2733,9 +3003,14 @@ self.onmessage = function(e) {
     // Clear canvas
     octx.clearRect(0, 0, W, H);
 
-    // Rendu highlight uniquement (à D2a)
+    // Rendu (couches 0-2 lèvres + highlight)
     if (landmarks) {
+      // IMPORTANT : lèvres AVANT highlight pour que les halos soient au-dessus
+      // (cohérent avec l'ordre main thread : applyBlush → applyHighlight → applyEyes → applyBrows → applyLips)
+      // En revanche, dans le worker, on n'a que highlight + lips, donc l'ordre est : lips puis highlight
+      // Mais en réalité dans applyMakeupAR original highlight tourne AVANT lips... donc on doit aussi faire highlight avant lips
       renderHighlight(octx, landmarks, W, H, makeupHighlight, detectedTone);
+      renderLips(octx, landmarks, W, H, makeupLips, currentLipStyle, jawOpen, detectedTone);
     }
 
     // Conversion en ImageBitmap transférable (zéro-copy)
@@ -2767,7 +3042,7 @@ function initRenderWorker() {
       if (msg.type === 'ready') {
         workerReady = true;
         useWorkerRendering = true; // ÉTAPE D2a : on active le rendu via worker (highlight uniquement)
-        console.log('[Mirow] Worker ready (étape D2a - highlight via worker)');
+        console.log('[Mirow] Worker ready (étape D2b - highlight + lips via worker)');
       }
       if (msg.type === 'frameRendered') {
         // Bitmap reçu du worker → on le stocke pour composition au prochain frame
@@ -3600,16 +3875,26 @@ function applyMakeupAR(lm, W, H) {
   // ============================================================
   if (useWorkerRendering && workerReady && mirowWorker) {
     // 1. Envoi de la frame courante (si worker pas busy)
-    if (!workerBusy && makeup.highlight && makeup.highlight.c && makeup.highlight.op >= 0.05) {
+    // D2b : on envoie aussi makeup.lips + currentLipStyle + jawOpen
+    const hasHighlight = makeup.highlight && makeup.highlight.c && makeup.highlight.op >= 0.05;
+    const hasLips      = makeup.lips && makeup.lips.c;
+    const shouldRender = hasHighlight || hasLips;
+
+    if (!workerBusy && shouldRender) {
       workerBusy = true;
       workerFrameId++;
-      // Les landmarks sont déjà au format normalisé (0..1) en sortie de MediaPipe
-      // → on les envoie tels quels au worker qui multiplie par W/H dans pt()
+      // Récupérer jawOpen depuis currentBlendshapes (peut être null/undefined sur FaceMesh fallback)
+      const jawOpenValue = (currentBlendshapes && typeof currentBlendshapes.jawOpen === 'number')
+        ? currentBlendshapes.jawOpen
+        : null;
       mirowWorker.postMessage({
         type: 'renderFrame',
         landmarks: lm.map(p => ({ x: p.x, y: p.y, z: p.z })),
-        makeupHighlight: makeup.highlight,
-        detectedTone: detectedTone,
+        makeupHighlight: makeup.highlight || null,
+        makeupLips:      makeup.lips || null,
+        currentLipStyle: currentLipStyle || 'glossy',
+        jawOpen:         jawOpenValue,
+        detectedTone:    detectedTone,
         W: W,
         H: H,
         frameId: workerFrameId,
@@ -4400,6 +4685,10 @@ document.getElementById('toneRescan').addEventListener('click', rescanTone);
 
 /** Lèvres : remplissage + léger reflet humide */
 function applyLips(lm, W, H) {
+  // ÉTAPE D2b : si le worker prend en charge les lèvres, on skip ici
+  // (le rendu est composé via le bitmap worker dans applyMakeupAR)
+  if (useWorkerRendering && workerReady) return;
+
   const m = makeup.lips;
   if (!m || !m.c) return;
   const rgb = hexToRgb(m.c);
