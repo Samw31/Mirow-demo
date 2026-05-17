@@ -1260,6 +1260,21 @@ input[type=range]::-moz-range-thumb {
   .panel {
     padding-bottom: env(safe-area-inset-bottom, 0);
   }
+
+  /* CORRECTION E1.1 : cam-overlay (écran d'accueil avant activation cam)
+     doit être PAR-DESSUS le panel pour que le bouton "Activer la caméra"
+     soit cliquable. Sinon le panel le masque. */
+  .cam-overlay {
+    z-index: 30; /* > panel (z-index 20) */
+  }
+
+  /* CORRECTION E1.1 bis : tant que la caméra n'est pas démarrée
+     (classe .cam-not-started sur .app), on masque le panel pour ne
+     pas créer de confusion visuelle (deux UI superposées). Le panel
+     apparaît uniquement quand la caméra est active. */
+  .app.cam-not-started .panel {
+    display: none;
+  }
 }
 
 /* Mobile spécifique (< 640px) : ajustements supplémentaires */
@@ -1516,7 +1531,7 @@ input[type=range]::-moz-range-thumb {
 </head>
 
 <body>
-<div class="app">
+<div class="app cam-not-started">
 
   <!-- TOPBAR -->
   <div class="topbar">
@@ -3453,6 +3468,7 @@ async function startCamera() {
     video.srcObject = stream;
     await video.play();
     camOverlay.classList.add('hidden');
+    document.querySelector('.app').classList.remove('cam-not-started'); // E1 mobile : faire apparaître le panel
     statusDot.classList.add('on');
     statusText.textContent = 'Détection active';
     initTracker(); // Tasks Vision si dispo, sinon FaceMesh fallback
@@ -5851,6 +5867,7 @@ function enterPhotoMode(img, landmarks) {
 
   // Cacher l'overlay d'accueil
   camOverlay.classList.add('hidden');
+  document.querySelector('.app').classList.remove('cam-not-started'); // E1 mobile : faire apparaître le panel
   hidePhotoError();
 
   // Cacher la vidéo (si elle était active)
