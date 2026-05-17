@@ -1197,16 +1197,84 @@ input[type=range]::-moz-range-thumb {
 @media (max-width: 900px) {
   .panel { width: 280px; }
 }
-@media (max-width: 640px) {
-  .main { flex-direction: column; }
+
+/* ============================================================
+   RESPONSIVE MOBILE + TABLETTE (< 1024px)
+   ------------------------------------------------------------
+   Design validé v3.14 :
+   - Caméra à 62vh au-dessus
+   - Panel à 38vh en-dessous (PAS overlay, layout vertical classique)
+   - Catégories en pills horizontales scroll horizontal
+   - Swatches en ligne unique scroll horizontal
+   ============================================================ */
+@media (max-width: 1023px) {
+  .main {
+    flex-direction: column;
+  }
   .panel {
     width: 100%;
+    height: 38vh;
+    height: 38dvh; /* dynamic viewport pour iOS Safari */
     max-height: none;
     border-left: none;
     border-top: 0.5px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom, 0);
   }
-  .cam-area { min-height: 320px; height: 50vh; }
-  .swatch-grid { grid-template-columns: repeat(8, 1fr); }
+  .cam-area {
+    min-height: 320px;
+    height: 62vh;
+    height: 62dvh;
+  }
+
+  /* Catégories en pills horizontales scrollables */
+  .cat-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+    padding-bottom: 2px; /* éviter coupure visuelle des pills */
+  }
+  .cat-row::-webkit-scrollbar { display: none; }
+  .cat-btn {
+    flex-shrink: 0; /* éviter écrasement */
+    padding: 8px 16px;
+    font-size: 11px;
+  }
+
+  /* Swatches en ligne unique scroll horizontal */
+  .swatch-grid {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 10px;
+    padding-bottom: 4px;
+  }
+  .swatch-grid::-webkit-scrollbar { display: none; }
+  .swatch {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    aspect-ratio: auto;
+  }
+
+  /* Compactage léger des sections panel pour économiser place */
+  .panel-section {
+    padding: 14px 20px;
+  }
+}
+
+/* Mobile spécifique (< 640px) : ajustements supplémentaires */
+@media (max-width: 640px) {
+  .cat-btn {
+    font-size: 10px;
+    padding: 7px 14px;
+  }
+  .swatch {
+    width: 34px;
+    height: 34px;
+  }
 }
 
 /* ============================================================
