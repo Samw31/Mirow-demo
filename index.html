@@ -1245,15 +1245,16 @@ input[type=range]::-moz-range-thumb {
     left: 0;
     right: 0;
     width: 100%;
-    max-height: 55vh; /* limite haute en mode collapsed E1 */
-    max-height: 55dvh;
+    /* Hauteur en mode collapsed : on garde le visage visible au-dessus */
+    height: 45vh;
+    height: 45dvh;
+    max-height: none;
     border-left: none;
     border-top: 0.5px solid var(--border);
-    background: rgba(9, 9, 15, 0.92); /* légèrement transparent pour voir cam en transparence */
+    background: rgba(9, 9, 15, 0.92);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     z-index: 20;
-    /* À E1 : pas de drag, juste cette hauteur fixe */
   }
 
   /* Safe area iOS (notch, home indicator) */
@@ -1261,19 +1262,48 @@ input[type=range]::-moz-range-thumb {
     padding-bottom: env(safe-area-inset-bottom, 0);
   }
 
+  /* Sur mobile, on cadre la vidéo plus haut pour que le visage soit
+     visible au-dessus du panel (sinon il est centré et caché par le panel).
+     object-position 50% 25% = centré horizontalement, 25% depuis le haut
+     (le visage est en général dans le tiers supérieur du frame vidéo). */
+  #video, #outputCanvas, #webglCanvas, #photoView {
+    object-position: 50% 30%;
+  }
+
   /* CORRECTION E1.1 : cam-overlay (écran d'accueil avant activation cam)
      doit être PAR-DESSUS le panel pour que le bouton "Activer la caméra"
      soit cliquable. Sinon le panel le masque. */
   .cam-overlay {
-    z-index: 30; /* > panel (z-index 20) */
+    z-index: 30;
   }
 
   /* CORRECTION E1.1 bis : tant que la caméra n'est pas démarrée
-     (classe .cam-not-started sur .app), on masque le panel pour ne
-     pas créer de confusion visuelle (deux UI superposées). Le panel
-     apparaît uniquement quand la caméra est active. */
+     (classe .cam-not-started sur .app), on masque le panel. */
   .app.cam-not-started .panel {
     display: none;
+  }
+
+  /* CORRECTION E1.2 : épingler la section "Catégorie" en haut du panel
+     pour qu'elle reste toujours visible même quand on scroll le panel.
+     Sinon, sur mobile, l'utilisateur perd la navigation principale. */
+  .panel-scroll {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch; /* scroll fluide iOS */
+  }
+  /* Première section (Catégorie) reste sticky en haut */
+  .panel-scroll > .panel-section:first-child {
+    position: sticky;
+    top: 0;
+    background: rgba(9, 9, 15, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    z-index: 5;
+    padding: 14px 20px 12px; /* un peu plus compact qu'en desktop */
+  }
+
+  /* Réduction du padding des sections sur mobile pour gagner de la place */
+  .panel-section {
+    padding: 14px 20px;
   }
 }
 
