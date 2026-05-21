@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Mirow POC 3D — v1 (gamma)</title>
+<title>Mirow POC 3D — v1.1 (mesh plein + gamma)</title>
 
 <!--
   ============================================================
@@ -202,8 +202,8 @@
 
   <!-- Écran de démarrage -->
   <div class="start-overlay" id="startOverlay">
-    <h1 class="start-title">Mirow <span class="accent">POC v1</span></h1>
-    <p class="start-subtitle">Test avec <strong>gamma correction sRGB</strong>. Couleur attendue : rouge cerise stable Mac+iPhone.</p>
+    <h1 class="start-title">Mirow <span class="accent">POC v1.1</span></h1>
+    <p class="start-subtitle">Fix triangulation : <strong>surface pleine</strong> des lèvres + gamma sRGB. Le rouge doit couvrir 100% des lèvres.</p>
     <button class="start-btn" id="startBtn">Démarrer le test</button>
     <p class="error" id="startError" style="display:none;"></p>
   </div>
@@ -264,63 +264,68 @@ let hasDetection = false;
 //
 // Chaque bande est triangulée en zig-zag (triangles entre les 2 contours).
 //
-// Indices MediaPipe Face Landmarker pour les lèvres :
-//  - 478 landmarks au total
-//  - Lèvres = ~40 points formant 4 contours
+// Approche v1.1 (FIX) : on triangule la SURFACE PLEINE des lèvres, pas juste
+// les contours. Méthode : "fan triangulation" depuis un point central.
+//
+//  - Upper lip : on prend le contour COMPLET (extérieur + retour par intérieur)
+//    et on relie chaque segment à un point central (point 13 = milieu lèvres)
+//  - Lower lip : pareil avec le contour inférieur
+//
+// Cette approche garantit une couverture pleine et marche pour tout polygone
+// convexe ou faiblement concave. Pour les lèvres c'est parfait.
 // ============================================================
 
-// Contour EXTÉRIEUR SUPÉRIEUR (sens horaire vu de face, démarre coin gauche)
-const UPPER_OUTER = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291];
+// Contour COMPLET de la lèvre supérieure (extérieur dans un sens, intérieur en retour)
+// Forme un polygone fermé qui délimite TOUTE la surface de la lèvre supérieure.
+const UPPER_LIP_CONTOUR = [
+  // Extérieur (coin gauche → coin droit, par le haut)
+  61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291,
+  // Intérieur (coin droit → coin gauche, par le bas du dessous de la lèvre sup)
+  308, 415, 310, 311, 312, 13, 82, 81, 80, 191, 78,
+];
 
-// Contour INTÉRIEUR SUPÉRIEUR (sens horaire, même direction)
-const UPPER_INNER = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
+// Contour COMPLET de la lèvre inférieure
+const LOWER_LIP_CONTOUR = [
+  // Intérieur (coin gauche → coin droit, par le haut du dessus de lèvre inf)
+  78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308,
+  // Extérieur (coin droit → coin gauche, par le bas)
+  291, 375, 321, 405, 314, 17, 84, 181, 91, 146, 61,
+];
 
-// Contour INTÉRIEUR INFÉRIEUR (sens horaire vu de face, démarre coin gauche)
-const LOWER_INNER = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308];
-
-// Contour EXTÉRIEUR INFÉRIEUR (sens horaire)
-const LOWER_OUTER = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291];
+// Point central de chaque lèvre (utilisé comme pivot de fan triangulation)
+const UPPER_CENTER = 13;  // milieu entre lèvres (ligne de bouche, lèvre sup)
+const LOWER_CENTER = 14;  // milieu entre lèvres (ligne de bouche, lèvre inf)
 
 /**
- * Construit la liste des triangles entre 2 contours parallèles (zig-zag).
- * Retourne un tableau de triplets d'indices [a, b, c, a, b, c, ...]
- * pour utilisation directe en gl.TRIANGLES.
+ * Fan triangulation : depuis un point central, on crée des triangles
+ * vers chaque paire de points adjacents du contour.
+ *
+ *     center
+ *      / | \
+ *     /  |  \
+ *  p[0] p[1] p[2] ... (contour)
+ *
+ * Triangle i = [center, p[i], p[i+1]]
  */
-function buildBand(outerIndices, innerIndices) {
+function fanTriangulate(contourIndices, centerIdx) {
   const triangles = [];
-  if (outerIndices.length !== innerIndices.length) {
-    console.warn('[POC] band lengths mismatch', outerIndices.length, innerIndices.length);
+  for (let i = 0; i < contourIndices.length - 1; i++) {
+    triangles.push(centerIdx, contourIndices[i], contourIndices[i + 1]);
   }
-  const n = Math.min(outerIndices.length, innerIndices.length);
-  // Pour chaque paire de segments adjacents, on fait 2 triangles (quad)
-  //   outer[i] ---- outer[i+1]
-  //      |  \     /    |
-  //      |   \   /     |
-  //   inner[i] -- inner[i+1]
-  for (let i = 0; i < n - 1; i++) {
-    const o0 = outerIndices[i];
-    const o1 = outerIndices[i + 1];
-    const i0 = innerIndices[i];
-    const i1 = innerIndices[i + 1];
-    // Triangle 1 : outer[i], outer[i+1], inner[i]
-    triangles.push(o0, o1, i0);
-    // Triangle 2 : outer[i+1], inner[i+1], inner[i]
-    triangles.push(o1, i1, i0);
-  }
+  // Fermer le polygone : dernier point → premier point
+  triangles.push(centerIdx, contourIndices[contourIndices.length - 1], contourIndices[0]);
   return triangles;
 }
 
-// Triangulation pré-calculée (statique, jamais recalculée)
-// On combine upper band + lower band → mesh complet des lèvres
-const LIP_TRIANGLES_UPPER = buildBand(UPPER_OUTER, UPPER_INNER);
-const LIP_TRIANGLES_LOWER = buildBand(LOWER_INNER, LOWER_OUTER);
+// Triangulation pleine de chaque lèvre + concaténation
+const LIP_TRIANGLES_UPPER = fanTriangulate(UPPER_LIP_CONTOUR, UPPER_CENTER);
+const LIP_TRIANGLES_LOWER = fanTriangulate(LOWER_LIP_CONTOUR, LOWER_CENTER);
 const LIP_TRIANGLES = [...LIP_TRIANGLES_UPPER, ...LIP_TRIANGLES_LOWER];
 
-console.log('[POC] Lip mesh : ' + LIP_TRIANGLES.length / 3 + ' triangles, ' +
+console.log('[POC v1.1] Lip mesh fan : ' + LIP_TRIANGLES.length / 3 + ' triangles, ' +
             new Set(LIP_TRIANGLES).size + ' vertices uniques');
 
 // Liste plate des vertices uniques utilisés
-// (sera utilisée pour construire les buffers WebGL)
 const LIP_VERTEX_INDICES = [...new Set(LIP_TRIANGLES)].sort((a, b) => a - b);
 
 // Mapping landmark index → position dans le buffer de vertices
