@@ -2815,21 +2815,24 @@ function renderLips(ctx, lm, W, H, makeupLips, currentLipStyle, jawOpen, detecte
 
   const styleParams = {
     matte: {
-      baseOp:        Math.min(1.0, mLips.op * 0.65 * toneAdj.opMultiplier),
+      // [RESTAURÉ 10 MAI v3.15] baseOp 0.65 → 0.85, satBoost 0.9 → 1.0
+      baseOp:        Math.min(1.0, mLips.op * 0.85 * toneAdj.opMultiplier),
       lowerLightenR: 8, lowerLightenG: 4, lowerLightenB: 5,
-      saturationBoost: 0.9 * toneAdj.satBoost,
+      saturationBoost: 1.0 * toneAdj.satBoost,
       blurAmount:    1.4,
     },
     glossy: {
-      baseOp:        Math.min(1.0, mLips.op * 0.55 * toneAdj.opMultiplier),
+      // [RESTAURÉ 10 MAI v3.15] baseOp 0.55 → 0.70, satBoost 0.9 → 1.0
+      baseOp:        Math.min(1.0, mLips.op * 0.70 * toneAdj.opMultiplier),
       lowerLightenR: 25, lowerLightenG: 10, lowerLightenB: 15,
-      saturationBoost: 0.9 * toneAdj.satBoost,
+      saturationBoost: 1.0 * toneAdj.satBoost,
       blurAmount:    2.2,
     },
     metallic: {
-      baseOp:        mLips.op * 0.55 * toneAdj.opMultiplier,
+      // [RESTAURÉ 10 MAI v3.15] baseOp 0.55 → 0.78, satBoost 1.05 → 1.15
+      baseOp:        mLips.op * 0.78 * toneAdj.opMultiplier,
       lowerLightenR: 35, lowerLightenG: 18, lowerLightenB: 22,
-      saturationBoost: 1.05 * toneAdj.satBoost,
+      saturationBoost: 1.15 * toneAdj.satBoost,
       blurAmount:    2.2,
     },
   };
