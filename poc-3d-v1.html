@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Mirow POC 3D — v1 (gamma)</title>
+
+<!--
+  ============================================================
+  MIROW POC 3D — Phase 0 (validation faisabilité)
+  ============================================================
+  OBJECTIF : Prouver qu'on peut rendre un mesh 3D des lèvres
+  qui suit la rotation 3D de la tête, à 30 FPS minimum sur iPhone.
+
+  NE CONTIENT PAS :
+   - Styling (matte/glossy/metallic) → Phase 1
+   - Textures / normal maps → Phase 1
+   - Specular / Fresnel → Phase 1
+   - Autres catégories (yeux, blush, etc) → Phase 2
+
+  STACK :
+   - MediaPipe Tasks Vision (réutilise modèle CDN)
+   - WebGL natif (pas de three.js)
+   - Triangulation Delaunay maison
+
+  CRITÈRES GO/NO-GO :
+   - FPS iPhone ≥ 30 soutenu
+   - Mesh tourne avec la tête
+   - Couverture lèvres ≥ 90%
+   - Pas de glitch / inversion
+   - Marche Safari iOS + Chrome desktop
+  ============================================================
+-->
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #09090F;
+    color: #F0ECE6;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    overflow: hidden;
+    height: 100vh;
+    height: 100dvh;
+  }
+  .container {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    background: #000;
+  }
+  #video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+  }
+  /* Canvas WebGL en couche supérieure, transparent par défaut */
+  #glCanvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+    pointer-events: none;
+  }
+
+  /* HUD FPS + état */
+  .hud {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    background: rgba(9, 9, 15, 0.75);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 0.5px solid rgba(168, 85, 247, 0.3);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 11px;
+    line-height: 1.6;
+    z-index: 10;
+    font-family: 'SF Mono', Monaco, monospace;
+  }
+  .hud-label {
+    color: rgba(240, 236, 230, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 9px;
+  }
+  .hud-value {
+    color: #F0ECE6;
+    font-weight: 600;
+  }
+  .hud-good { color: #4ADE80; }
+  .hud-warn { color: #FBBF24; }
+  .hud-bad { color: #EC4899; }
+
+  /* Bouton start */
+  .start-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #09090F;
+    gap: 24px;
+    z-index: 100;
+    padding: 24px;
+    text-align: center;
+  }
+  .start-overlay.hidden { display: none; }
+  .start-title {
+    font-family: Georgia, serif;
+    font-size: 28px;
+    letter-spacing: -0.02em;
+  }
+  .start-title .accent {
+    background: linear-gradient(135deg, #A855F7 0%, #EC4899 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .start-subtitle {
+    color: rgba(240, 236, 230, 0.5);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    max-width: 320px;
+    line-height: 1.6;
+  }
+  .start-btn {
+    background: linear-gradient(135deg, #A855F7 0%, #EC4899 100%);
+    color: #fff;
+    border: none;
+    padding: 14px 36px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .error {
+    color: #EC4899;
+    font-size: 12px;
+    margin-top: 12px;
+  }
+
+  /* Indicateurs GO/NO-GO en bas */
+  .criteria {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    right: 16px;
+    background: rgba(9, 9, 15, 0.75);
+    backdrop-filter: blur(8px);
+    border: 0.5px solid rgba(168, 85, 247, 0.3);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 10px;
+    z-index: 10;
+    font-family: 'SF Mono', Monaco, monospace;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 12px;
+  }
+  .criterion {
+    display: flex;
+    justify-content: space-between;
+  }
+  .criterion-label {
+    color: rgba(240, 236, 230, 0.5);
+  }
+</style>
+</head>
+
+<body>
+
+<div class="container">
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="glCanvas"></canvas>
+
+  <!-- HUD performance -->
+  <div class="hud">
+    <div><span class="hud-label">FPS</span> <span class="hud-value" id="hudFps">—</span></div>
+    <div><span class="hud-label">Frame</span> <span class="hud-value" id="hudFrame">—</span> ms</div>
+    <div><span class="hud-label">État</span> <span class="hud-value" id="hudState">Init...</span></div>
+    <div><span class="hud-label">Pose</span> <span class="hud-value" id="hudPose">—</span></div>
+  </div>
+
+  <!-- Critères GO/NO-GO -->
+  <div class="criteria">
+    <div class="criterion"><span class="criterion-label">FPS ≥ 30</span> <span id="critFps">—</span></div>
+    <div class="criterion"><span class="criterion-label">Tracking 3D</span> <span id="critTrack">—</span></div>
+    <div class="criterion"><span class="criterion-label">Mesh lèvres</span> <span id="critMesh">—</span></div>
+    <div class="criterion"><span class="criterion-label">WebGL</span> <span id="critWebgl">—</span></div>
+  </div>
+
+  <!-- Écran de démarrage -->
+  <div class="start-overlay" id="startOverlay">
+    <h1 class="start-title">Mirow <span class="accent">POC v1</span></h1>
+    <p class="start-subtitle">Test avec <strong>gamma correction sRGB</strong>. Couleur attendue : rouge cerise stable Mac+iPhone.</p>
+    <button class="start-btn" id="startBtn">Démarrer le test</button>
+    <p class="error" id="startError" style="display:none;"></p>
+  </div>
+</div>
+
+<!-- MediaPipe Tasks Vision (module ES) -->
+<script type="module">
+  import { FaceLandmarker, FilesetResolver }
+    from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/vision_bundle.mjs";
+  window.FaceLandmarker = FaceLandmarker;
+  window.FilesetResolver = FilesetResolver;
+  window.dispatchEvent(new CustomEvent('mediapipe-ready'));
+</script>
+
+<script>
+// ============================================================
+// ÉTAPE 0a — Setup WebGL + caméra + MediaPipe + HUD FPS
+// ============================================================
+
+// Refs DOM
+const video       = document.getElementById('video');
+const glCanvas    = document.getElementById('glCanvas');
+const startBtn    = document.getElementById('startBtn');
+const startOverlay= document.getElementById('startOverlay');
+const startError  = document.getElementById('startError');
+const hudFps      = document.getElementById('hudFps');
+const hudFrame    = document.getElementById('hudFrame');
+const hudState    = document.getElementById('hudState');
+const hudPose     = document.getElementById('hudPose');
+const critFps     = document.getElementById('critFps');
+const critTrack   = document.getElementById('critTrack');
+const critMesh    = document.getElementById('critMesh');
+const critWebgl   = document.getElementById('critWebgl');
+
+// État global
+let gl = null;
+let faceLandmarker = null;
+let lastVideoTime = -1;
+
+// FPS tracking
+let frameCount = 0;
+let fpsTimer = performance.now();
+let lastFrameTime = performance.now();
+let currentFps = 0;
+let frameDuration = 0;
+
+// Pose & tracking
+let latestLandmarks = null;
+let latestMatrix = null;
+let hasDetection = false;
+
+// ============================================================
+// ÉTAPE 0b — TRIANGULATION DES LÈVRES (bandes upper/lower)
+// ============================================================
+// Approche : on traite les lèvres comme 2 bandes fermées :
+//  - Upper lip : contour extérieur supérieur + contour intérieur supérieur
+//  - Lower lip : contour intérieur inférieur + contour extérieur inférieur
+//
+// Chaque bande est triangulée en zig-zag (triangles entre les 2 contours).
+//
+// Indices MediaPipe Face Landmarker pour les lèvres :
+//  - 478 landmarks au total
+//  - Lèvres = ~40 points formant 4 contours
+// ============================================================
+
+// Contour EXTÉRIEUR SUPÉRIEUR (sens horaire vu de face, démarre coin gauche)
+const UPPER_OUTER = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291];
+
+// Contour INTÉRIEUR SUPÉRIEUR (sens horaire, même direction)
+const UPPER_INNER = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
+
+// Contour INTÉRIEUR INFÉRIEUR (sens horaire vu de face, démarre coin gauche)
+const LOWER_INNER = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308];
+
+// Contour EXTÉRIEUR INFÉRIEUR (sens horaire)
+const LOWER_OUTER = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291];
+
+/**
+ * Construit la liste des triangles entre 2 contours parallèles (zig-zag).
+ * Retourne un tableau de triplets d'indices [a, b, c, a, b, c, ...]
+ * pour utilisation directe en gl.TRIANGLES.
+ */
+function buildBand(outerIndices, innerIndices) {
+  const triangles = [];
+  if (outerIndices.length !== innerIndices.length) {
+    console.warn('[POC] band lengths mismatch', outerIndices.length, innerIndices.length);
+  }
+  const n = Math.min(outerIndices.length, innerIndices.length);
+  // Pour chaque paire de segments adjacents, on fait 2 triangles (quad)
+  //   outer[i] ---- outer[i+1]
+  //      |  \     /    |
+  //      |   \   /     |
+  //   inner[i] -- inner[i+1]
+  for (let i = 0; i < n - 1; i++) {
+    const o0 = outerIndices[i];
+    const o1 = outerIndices[i + 1];
+    const i0 = innerIndices[i];
+    const i1 = innerIndices[i + 1];
+    // Triangle 1 : outer[i], outer[i+1], inner[i]
+    triangles.push(o0, o1, i0);
+    // Triangle 2 : outer[i+1], inner[i+1], inner[i]
+    triangles.push(o1, i1, i0);
+  }
+  return triangles;
+}
+
+// Triangulation pré-calculée (statique, jamais recalculée)
+// On combine upper band + lower band → mesh complet des lèvres
+const LIP_TRIANGLES_UPPER = buildBand(UPPER_OUTER, UPPER_INNER);
+const LIP_TRIANGLES_LOWER = buildBand(LOWER_INNER, LOWER_OUTER);
+const LIP_TRIANGLES = [...LIP_TRIANGLES_UPPER, ...LIP_TRIANGLES_LOWER];
+
+console.log('[POC] Lip mesh : ' + LIP_TRIANGLES.length / 3 + ' triangles, ' +
+            new Set(LIP_TRIANGLES).size + ' vertices uniques');
+
+// Liste plate des vertices uniques utilisés
+// (sera utilisée pour construire les buffers WebGL)
+const LIP_VERTEX_INDICES = [...new Set(LIP_TRIANGLES)].sort((a, b) => a - b);
+
+// Mapping landmark index → position dans le buffer de vertices
+const LANDMARK_TO_BUFFER_IDX = {};
+LIP_VERTEX_INDICES.forEach((landmarkIdx, bufIdx) => {
+  LANDMARK_TO_BUFFER_IDX[landmarkIdx] = bufIdx;
+});
+
+// Indices remappés pour gl.drawElements (utilisent les indices du buffer, pas les landmarks)
+const LIP_GL_INDICES = LIP_TRIANGLES.map(landmarkIdx => LANDMARK_TO_BUFFER_IDX[landmarkIdx]);
+
+// ============================================================
+// ÉTAPE 0c — SHADERS WEBGL + RENDU MESH + MATRICE 4×4
+// ============================================================
+// Vertex shader : prend les positions 2D des landmarks (espace écran
+// normalisé), applique éventuellement un offset 3D via la matrice
+// faciale pour donner un effet de relief subtil sur les lèvres.
+//
+// Fragment shader : couleur unie pour ce POC.
+// ============================================================
+
+const VERTEX_SHADER_SRC = `
+  attribute vec3 aPosition;       // x, y dans [0,1], z = profondeur landmark
+  uniform vec2 uResolution;       // taille du canvas
+  uniform mat4 uFaceMatrix;       // matrice 4×4 MediaPipe (row-major converted)
+  uniform float uUseMatrix;       // 1.0 = appliquer matrice, 0.0 = pas appliquer
+
+  varying float vDepth;           // pour debug : couleur dépend de la profondeur
+
+  void main() {
+    // Position en pixels (espace écran)
+    vec2 pixelPos = aPosition.xy * uResolution;
+
+    // Conversion en clip space WebGL (-1 to +1)
+    vec2 clipPos = (pixelPos / uResolution) * 2.0 - 1.0;
+    clipPos.y *= -1.0; // WebGL Y est inversé
+
+    // Pour ce POC 0c : position 2D directe, sans transformation 3D
+    // (la matrice 4×4 sera utilisée plus tard pour offset les normales)
+    gl_Position = vec4(clipPos, 0.0, 1.0);
+
+    vDepth = aPosition.z;
+  }
+`;
+
+const FRAGMENT_SHADER_SRC = `
+  precision mediump float;
+  varying float vDepth;
+
+  void main() {
+    // Couleur de base rouge cerise (#C9504B)
+    vec3 baseColor = vec3(0.788, 0.314, 0.294);
+
+    // Pour debug : on module légèrement avec la profondeur z des landmarks
+    float shade = 0.8 + 0.4 * (1.0 - vDepth * 5.0);
+    vec3 finalColor = baseColor * clamp(shade, 0.7, 1.2);
+
+    // === FIX v1 : GAMMA CORRECTION sRGB ===
+    // Sur Safari iOS, le navigateur applique une transformation
+    // d'espace de couleur différente de Chrome desktop. En appliquant
+    // un gamma 2.2 explicite en sortie, on force une interprétation
+    // sRGB standard cohérente sur tous les devices.
+    finalColor = pow(finalColor, vec3(1.0 / 2.2));
+
+    gl_FragColor = vec4(finalColor, 0.7);
+  }
+`;
+
+// Compilation des shaders
+function compileShader(source, type) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const err = gl.getShaderInfoLog(shader);
+    console.error('[POC] Shader compile error:', err);
+    gl.deleteShader(shader);
+    throw new Error('Shader compile failed: ' + err);
+  }
+  return shader;
+}
+
+function linkProgram(vsSrc, fsSrc) {
+  const vs = compileShader(vsSrc, gl.VERTEX_SHADER);
+  const fs = compileShader(fsSrc, gl.FRAGMENT_SHADER);
+  const program = gl.createProgram();
+  gl.attachShader(program, vs);
+  gl.attachShader(program, fs);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    const err = gl.getProgramInfoLog(program);
+    console.error('[POC] Program link error:', err);
+    throw new Error('Program link failed: ' + err);
+  }
+  return program;
+}
+
+// Variables WebGL globales (initialisées dans initWebGLProgram)
+let glProgram = null;
+let glPositionBuffer = null;
+let glIndexBuffer = null;
+let glAttribPosition = null;
+let glUniformResolution = null;
+let glUniformFaceMatrix = null;
+let glUniformUseMatrix = null;
+// Buffer CPU mis à jour à chaque frame (3 floats par vertex)
+let vertexData = new Float32Array(LIP_VERTEX_INDICES.length * 3);
+
+function initWebGLProgram() {
+  glProgram = linkProgram(VERTEX_SHADER_SRC, FRAGMENT_SHADER_SRC);
+  gl.useProgram(glProgram);
+
+  // Attributes
+  glAttribPosition = gl.getAttribLocation(glProgram, 'aPosition');
+
+  // Uniforms
+  glUniformResolution = gl.getUniformLocation(glProgram, 'uResolution');
+  glUniformFaceMatrix = gl.getUniformLocation(glProgram, 'uFaceMatrix');
+  glUniformUseMatrix  = gl.getUniformLocation(glProgram, 'uUseMatrix');
+
+  // Buffer vertex (dynamique, mis à jour à chaque frame)
+  glPositionBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, glPositionBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, vertexData, gl.DYNAMIC_DRAW);
+
+  // Buffer index (statique, jamais modifié)
+  glIndexBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, glIndexBuffer);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(LIP_GL_INDICES), gl.STATIC_DRAW);
+
+  // Initial GL state
+  gl.disable(gl.DEPTH_TEST); // pas besoin pour ce POC
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+  console.log('[POC] WebGL program ready');
+  console.log('  - ' + LIP_VERTEX_INDICES.length + ' vertices');
+  console.log('  - ' + LIP_GL_INDICES.length / 3 + ' triangles');
+}
+
+/**
+ * Met à jour le buffer de vertices avec les positions des landmarks détectés.
+ * Appelé à chaque frame où une détection est disponible.
+ */
+function updateVertexBuffer(landmarks) {
+  for (let i = 0; i < LIP_VERTEX_INDICES.length; i++) {
+    const lmIdx = LIP_VERTEX_INDICES[i];
+    const lm = landmarks[lmIdx];
+    if (!lm) continue;
+    // Important : MediaPipe x va de 0 (droite caméra) à 1 (gauche caméra)
+    // après notre flip miroir CSS. Mais le canvas WebGL est aussi flippé.
+    // Donc on garde les coordonnées telles quelles.
+    vertexData[i * 3]     = lm.x;
+    vertexData[i * 3 + 1] = lm.y;
+    vertexData[i * 3 + 2] = lm.z;
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, glPositionBuffer);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, vertexData);
+}
+
+/**
+ * Rendu effectif du mesh lèvres dans le canvas WebGL.
+ */
+function renderLipMesh() {
+  if (!latestLandmarks) return;
+
+  updateVertexBuffer(latestLandmarks);
+
+  // Uniforms
+  gl.uniform2f(glUniformResolution, glCanvas.width, glCanvas.height);
+  if (latestMatrix && latestMatrix.length >= 16) {
+    gl.uniformMatrix4fv(glUniformFaceMatrix, false, new Float32Array(latestMatrix));
+    gl.uniform1f(glUniformUseMatrix, 1.0);
+  } else {
+    gl.uniform1f(glUniformUseMatrix, 0.0);
+  }
+
+  // Bind buffers + attribute
+  gl.bindBuffer(gl.ARRAY_BUFFER, glPositionBuffer);
+  gl.enableVertexAttribArray(glAttribPosition);
+  gl.vertexAttribPointer(glAttribPosition, 3, gl.FLOAT, false, 0, 0);
+
+  // Bind index buffer + draw
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, glIndexBuffer);
+  gl.drawElements(gl.TRIANGLES, LIP_GL_INDICES.length, gl.UNSIGNED_SHORT, 0);
+}
+
+// ============================================================
+// INIT WEBGL — création du contexte + test basique
+// ============================================================
+function initWebGL() {
+  gl = glCanvas.getContext('webgl', {
+    alpha: true,
+    premultipliedAlpha: false,
+    antialias: true,
+    preserveDrawingBuffer: false,
+  });
+
+  if (!gl) {
+    critWebgl.textContent = '✗ NO-GO';
+    critWebgl.className = 'hud-bad';
+    throw new Error('WebGL non disponible');
+  }
+
+  // Test : on efface le canvas en rouge transparent pour vérifier que WebGL marche
+  gl.clearColor(0.0, 0.0, 0.0, 0.0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+  critWebgl.textContent = '✓ OK';
+  critWebgl.className = 'hud-good';
+
+  console.log('[POC] WebGL initialized:', gl.getParameter(gl.VERSION));
+  console.log('[POC] WebGL renderer:', gl.getParameter(gl.RENDERER));
+
+  // Étape 0c : compiler les shaders + setup buffers
+  initWebGLProgram();
+
+  return true;
+}
+
+// Resize canvas si la vidéo change de taille
+function resizeCanvas() {
+  const W = video.videoWidth || 640;
+  const H = video.videoHeight || 480;
+  if (glCanvas.width !== W) {
+    glCanvas.width = W;
+    glCanvas.height = H;
+    gl.viewport(0, 0, W, H);
+  }
+}
+
+// ============================================================
+// CAMÉRA
+// ============================================================
+async function startCamera() {
+  startError.style.display = 'none';
+  hudState.textContent = 'Caméra...';
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'user',
+        width:  { ideal: 640 },
+        height: { ideal: 480 },
+      },
+      audio: false,
+    });
+    video.srcObject = stream;
+    await video.play();
+    return true;
+  } catch (e) {
+    startError.textContent = 'Caméra inaccessible : ' + e.message;
+    startError.style.display = 'block';
+    return false;
+  }
+}
+
+// ============================================================
+// MEDIAPIPE
+// ============================================================
+async function initFaceLandmarker() {
+  hudState.textContent = 'ML load...';
+  const filesetResolver = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm"
+  );
+  faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+    baseOptions: {
+      modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+      delegate: "GPU",
+    },
+    runningMode: "VIDEO",
+    numFaces: 1,
+    outputFaceBlendshapes: false, // pas besoin pour ce POC
+    outputFacialTransformationMatrixes: true, // ESSENTIEL pour la 3D
+    minFaceDetectionConfidence: 0.5,
+    minFacePresenceConfidence: 0.5,
+    minTrackingConfidence: 0.5,
+  });
+  console.log('[POC] FaceLandmarker ready');
+}
+
+// ============================================================
+// RENDER LOOP
+// ============================================================
+function renderLoop() {
+  const now = performance.now();
+  frameDuration = now - lastFrameTime;
+  lastFrameTime = now;
+
+  // FPS counter (mise à jour 1× par seconde)
+  frameCount++;
+  if (now - fpsTimer >= 1000) {
+    currentFps = Math.round((frameCount * 1000) / (now - fpsTimer));
+    frameCount = 0;
+    fpsTimer = now;
+    updateHud();
+  }
+
+  // Détection MediaPipe si nouvelle frame
+  if (faceLandmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    resizeCanvas();
+    try {
+      const result = faceLandmarker.detectForVideo(video, now);
+      if (result.faceLandmarks && result.faceLandmarks.length > 0) {
+        latestLandmarks = result.faceLandmarks[0];
+        latestMatrix = result.facialTransformationMatrixes?.[0]?.data || null;
+        hasDetection = true;
+      } else {
+        hasDetection = false;
+      }
+    } catch (e) {
+      console.warn('[POC] detection error:', e);
+    }
+  }
+
+  // ÉTAPE 0c : rendu du mesh lèvres
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  if (hasDetection && latestLandmarks) {
+    renderLipMesh();
+    critMesh.textContent = '✓ rendu';
+    critMesh.className = 'hud-good';
+  } else {
+    critMesh.textContent = '— en attente';
+    critMesh.className = 'hud-warn';
+  }
+
+  requestAnimationFrame(renderLoop);
+}
+
+function updateHud() {
+  hudFps.textContent = currentFps;
+  hudFrame.textContent = frameDuration.toFixed(1);
+
+  // Critère FPS
+  if (currentFps >= 30) {
+    critFps.textContent = '✓ ' + currentFps;
+    critFps.className = 'hud-good';
+  } else if (currentFps >= 20) {
+    critFps.textContent = '⚠ ' + currentFps;
+    critFps.className = 'hud-warn';
+  } else {
+    critFps.textContent = '✗ ' + currentFps;
+    critFps.className = 'hud-bad';
+  }
+
+  // Critère tracking
+  if (hasDetection) {
+    critTrack.textContent = '✓ détecté';
+    critTrack.className = 'hud-good';
+    hudState.textContent = 'Tracking actif';
+  } else {
+    critTrack.textContent = '— en attente';
+    critTrack.className = 'hud-warn';
+  }
+
+  // Pose (rotation tête extraite de la matrice 4×4)
+  if (latestMatrix && latestMatrix.length >= 11) {
+    // Extraction des angles Euler depuis la matrice column-major
+    const m31 = latestMatrix[2];
+    const m32 = latestMatrix[6];
+    const m33 = latestMatrix[10];
+    const yaw   = Math.atan2(-m31, Math.sqrt(m32*m32 + m33*m33)) * 180 / Math.PI;
+    const pitch = Math.atan2(m32, m33) * 180 / Math.PI;
+    hudPose.textContent = `yaw ${yaw.toFixed(0)}° pitch ${pitch.toFixed(0)}°`;
+  } else {
+    hudPose.textContent = '—';
+  }
+
+  // Critère mesh : géré dans renderLoop directement
+}
+
+// ============================================================
+// DÉMARRAGE
+// ============================================================
+startBtn.addEventListener('click', async () => {
+  startBtn.disabled = true;
+  startBtn.textContent = 'Chargement...';
+
+  // 1. WebGL
+  try {
+    initWebGL();
+  } catch (e) {
+    startError.textContent = e.message;
+    startError.style.display = 'block';
+    startBtn.disabled = false;
+    startBtn.textContent = 'Démarrer le test';
+    return;
+  }
+
+  // 2. Caméra
+  const camOk = await startCamera();
+  if (!camOk) {
+    startBtn.disabled = false;
+    startBtn.textContent = 'Réessayer';
+    return;
+  }
+
+  // 3. Attendre MediaPipe
+  if (typeof FaceLandmarker === 'undefined') {
+    await new Promise(r => window.addEventListener('mediapipe-ready', r, { once: true }));
+  }
+
+  // 4. Init Face Landmarker
+  try {
+    await initFaceLandmarker();
+  } catch (e) {
+    startError.textContent = 'Échec ML : ' + e.message;
+    startError.style.display = 'block';
+    return;
+  }
+
+  // 5. Hide overlay, start render loop
+  startOverlay.classList.add('hidden');
+  hudState.textContent = 'Détection...';
+  resizeCanvas();
+  renderLoop();
+});
+
+// Si MediaPipe charge avant le clic, on est prêt
+if (typeof FaceLandmarker === 'undefined') {
+  window.addEventListener('mediapipe-ready', () => {
+    console.log('[POC] MediaPipe loaded, ready to start');
+  }, { once: true });
+}
+</script>
+
+</body>
+</html>
